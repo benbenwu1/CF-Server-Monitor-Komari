@@ -11,7 +11,7 @@
 </p>
 
 [![Workers](https://img.shields.io/badge/Workers-2.8.4%20Beta1-f38020?style=flat-square&logo=cloudflare&logoColor=white)](version.json)
-[![Agent](https://img.shields.io/badge/Agent-1.0.3-2563eb?style=flat-square)](https://github.com/huilang-me/cfsm-agent)
+[![Agent](https://img.shields.io/badge/Agent-1.0.8-2563eb?style=flat-square)](https://github.com/huilang-me/cfsm-agent)
 [![GitHub Stars](https://img.shields.io/github/stars/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/forks)
 [![License](https://img.shields.io/badge/License-MIT-16a34a?style=flat-square)](#许可证)
@@ -19,6 +19,8 @@
 [在线演示](https://demo.huilang.me/) · [API 文档](API.md) · [Go 探针文档](agent-go.md) · [主题开发](theme-develop.md)
 
 </div>
+
+> **Fork 说明**：本仓库以 CF-Server-Monitor 为 Cloudflare 原生底座，参考 Komari 的产品能力继续演进。开发边界见 [项目基线](docs/PROJECT.md)，功能取舍见 [上游对比](docs/upstream-comparison.md)，当前独立测试部署见 [部署记录](docs/DEPLOYMENT.md)。本 Fork 不提供 WebSSH、远程命令或 Komari Agent 协议兼容。
 
 ## 项目简介
 
@@ -65,7 +67,7 @@ CF-Server-Monitor 是一个部署在 Cloudflare Workers 上的服务器监控系
 | --------- | -------------------------------------------------------------------------------- |
 | 实时监控      | CPU、GPU、内存、交换分区、磁盘、磁盘 IO、网络、连接数、进程数、负载、运行时间                                      |
 | 历史数据      | 7 天历史图表、长时段采样、实时网速、月流量统计与校正                                                      |
-| 网络质量      | 电信、联通、移动、BGP/字节节点延迟与丢包率追踪                                                        |
+| 网络质量      | 电信、联通、移动三网与可选 `BD` 第四自定义节点的延迟、丢包率追踪                                         |
 | 多视图前台     | 条形图、环形图、表格、地图视图，支持桌面端和移动端                                                        |
 | 管理后台      | 服务器增删改查、拖拽排序、隐藏服务器、导入导出、批量删除、数据库维护                                               |
 | 多系统 Agent | 主流 Linux、Alpine Linux、OpenWrt、群晖 DSM、飞牛 fnOS、FreeBSD、macOS、Windows；默认 Go 版本，保留 Shell/PowerShell 版本 |
@@ -101,7 +103,7 @@ flowchart LR
 | 组件                       | 当前版本          | 说明                                                                    |
 | ------------------------ | ------------- | --------------------------------------------------------------------- |
 | Workers                  | `2.8.4 Beta1` | 当前仓库版本，以 [version.json](version.json) 为准                              |
-| Go Agent                 | `1.0.3`       | 默认 Agent，独立维护于 [cfsm-agent](https://github.com/huilang-me/cfsm-agent) |
+| Go Agent                 | `1.0.8`       | 当前已验证 Agent，独立维护于 [cfsm-agent](https://github.com/huilang-me/cfsm-agent) |
 | Shell / PowerShell Agent | 旧版本，后续不再维护   | 保留旧脚本安装路径，仅建议特殊系统或纯脚本环境兜底使用                                         |
 
 近期变化：

@@ -11,7 +11,7 @@ A lightweight multi-server monitoring dashboard built on Cloudflare Workers, D1,
 </p>
 
 [![Workers](https://img.shields.io/badge/Workers-2.8.4%20Beta1-f38020?style=flat-square&logo=cloudflare&logoColor=white)](version.json)
-[![Agent](https://img.shields.io/badge/Agent-1.0.3-2563eb?style=flat-square)](https://github.com/huilang-me/cfsm-agent)
+[![Agent](https://img.shields.io/badge/Agent-1.0.8-2563eb?style=flat-square)](https://github.com/huilang-me/cfsm-agent)
 [![GitHub Stars](https://img.shields.io/github/stars/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/forks)
 [![License](https://img.shields.io/badge/License-MIT-16a34a?style=flat-square)](#license)
@@ -19,6 +19,8 @@ A lightweight multi-server monitoring dashboard built on Cloudflare Workers, D1,
 [Live Demo](https://demo.huilang.me/) · [API Reference](API.md) · [Go Agent Guide](agent-go.md) · [Theme Development](theme-develop.md)
 
 </div>
+
+> **Fork note:** This repository keeps CF-Server-Monitor as its Cloudflare-native foundation and evolves it with product ideas from Komari. See the [project baseline](docs/PROJECT.md), [upstream comparison](docs/upstream-comparison.md), and [independent test deployment](docs/DEPLOYMENT.md). This fork does not provide WebSSH, remote commands, or Komari Agent protocol compatibility.
 
 ## Overview
 
@@ -65,7 +67,7 @@ Compared with traditional controller-style monitoring tools, CF-Server-Monitor i
 | --- | --- |
 | Realtime monitoring | CPU, GPU, memory, swap, disk, disk IO, network, connections, process count, load average, uptime |
 | History | 7-day charts, long-range sampling, realtime network speed, monthly traffic and correction |
-| Network quality | Latency and packet loss tracking for CT, CU, CM, and BGP/BD nodes |
+| Network quality | Latency and packet loss tracking for CT, CU, CM, and an optional custom `BD` endpoint |
 | Dashboard views | Bar chart, ring chart, table, and map views for desktop and mobile |
 | Admin panel | Server CRUD, drag sorting, hidden servers, import/export, batch delete, database maintenance |
 | Cross-platform Agent | Mainstream Linux, Alpine Linux, OpenWrt, Synology DSM, Feiniu fnOS, FreeBSD, macOS, Windows; Go Agent by default, Shell/PowerShell still available |
@@ -102,7 +104,7 @@ Core flow:
 | Component | Current version | Notes |
 | --- | --- | --- |
 | Workers | `2.8.4 Beta1` | Current repository version, see [version.json](version.json) |
-| Go Agent | `1.0.3` | Default Agent, maintained in [cfsm-agent](https://github.com/huilang-me/cfsm-agent) |
+| Go Agent | `1.0.8` | Currently verified Agent, maintained in [cfsm-agent](https://github.com/huilang-me/cfsm-agent) |
 | Shell / PowerShell Agent | Legacy version, no longer maintained | Legacy script path, only suggested as a fallback for special systems or script-only environments |
 
 Recent changes:

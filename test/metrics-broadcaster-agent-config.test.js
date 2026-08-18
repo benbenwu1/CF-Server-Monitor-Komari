@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MetricsBroadcaster } from '../src/durable/MetricsBroadcaster.js';
-import { getHistoryMetrics } from '../src/handlers/update.js';
+import { getHistoryMetrics, handleUpdateWebSocketUpgrade } from '../src/handlers/update.js';
 
 globalThis.WebSocketRequestResponsePair = class WebSocketRequestResponsePair {
   constructor(request, response) {
@@ -350,6 +350,19 @@ test('WSS agent config descriptor force refreshes site settings', async () => {
   assert.equal(descriptor.config.connection_mode, 'http');
 });
 
+test('disabled Agent WSS handshake does not look like an auth failure', async () => {
+  const response = await handleUpdateWebSocketUpgrade(new Request('https://example.com/update', {
+    headers: { Upgrade: 'websocket' }
+  }), {
+    DB: makeSettingsDb({ wss_report_enabled: 'false' })
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.equal(body.code, 409);
+  assert.equal([401, 403, 404].includes(response.status), false);
+});
+
 test('agent report mode change closes existing Agent WSS when disabled', async () => {
   const sent = [];
   const closed = [];
@@ -395,11 +408,9 @@ test('agent report mode change closes existing Agent WSS when disabled', async (
     matched: 1,
     closed: 1
   });
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].type, 'error');
-  assert.equal(sent[0].code, 403);
+  assert.deepEqual(sent, []);
   assert.deepEqual(closed, [{
-    code: 1008,
+    code: 1000,
     reason: 'Agent WSS report disabled'
   }]);
 });

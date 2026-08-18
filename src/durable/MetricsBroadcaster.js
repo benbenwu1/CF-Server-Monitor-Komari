@@ -39,6 +39,7 @@ import {
 const MAX_SUBSCRIBE_IDS = 500;
 const MAX_SERVER_ID_LENGTH = 64;
 const SERVER_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
+const WS_NORMAL_CLOSURE = 1000;
 const WS_POLICY_VIOLATION = 1008;
 const AGENT_REPORT_KIND = 'agent-report';
 const DEFAULT_AGENT_HISTORY_WRITE_INTERVAL_MS = 60 * 1000;
@@ -960,16 +961,10 @@ export class MetricsBroadcaster {
       matched += 1;
 
       try {
-        this._sendWsJson(ws, {
-          type: 'error',
-          ts: Date.now(),
-          error: message,
-          code: 403
-        });
-      } catch (_) {}
-
-      try {
-        ws.close(WS_POLICY_VIOLATION, message);
+        // Disabling the optional transport is not a policy violation. A normal
+        // close keeps the Agent's POST fallback available so it can fetch the
+        // updated connection_mode=http configuration.
+        ws.close(WS_NORMAL_CLOSURE, message);
         closed += 1;
       } catch (_) {}
     }

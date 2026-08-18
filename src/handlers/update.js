@@ -652,8 +652,11 @@ export async function handleWebSocketUpgrade(request, env) {
 export async function handleUpdateWebSocketUpgrade(request, env) {
   const settings = await loadSiteSettings(env.DB);
   if (!isWssReportEnabled(settings)) {
-    return new Response(JSON.stringify({ error: 'Agent WSS report disabled', code: 403 }), {
-      status: 403,
+    // This is a transport-mode conflict, not an authentication failure.
+    // cfsm-agent pauses both WSS and POST fallback for auth/config statuses
+    // (401/403/404), which would prevent it from fetching connection_mode=http.
+    return new Response(JSON.stringify({ error: 'Agent WSS report disabled', code: 409 }), {
+      status: 409,
       headers: { 'Content-Type': 'application/json' }
     });
   }
