@@ -60,11 +60,15 @@ const createHeaders = (includeAuth = true, includeTurnstile = true, baseUrl = nu
 }
 
 const handleResponse = async (res, options = {}) => {
-  const { autoRedirect = true, baseUrl = null } = options
+  const { autoRedirect = true, baseUrl = null, authToken = '' } = options
   
   if (res.status === 401) {
-    removeAdminToken(localStorage, baseUrl || getApiBases()[0])
-    if (autoRedirect) {
+    const removedCurrentToken = removeAdminToken(
+      localStorage,
+      baseUrl || getApiBases()[0],
+      { expectedToken: authToken }
+    )
+    if (autoRedirect && removedCurrentToken) {
       redirectToAdminLogin()
     }
     return { error: DEFAULT_ERROR_MESSAGES[401], status: 401 }
@@ -118,6 +122,7 @@ const handleResponse = async (res, options = {}) => {
 const request = async (method, url, body, options = {}) => {
   const { includeAuth = true, includeTurnstile = true, autoRedirect = true, baseUrl = null } = options
   const headers = createHeaders(includeAuth, includeTurnstile, baseUrl, options)
+  const authToken = String(headers.Authorization || '').replace(/^Bearer\s+/i, '')
   const base = baseUrl || getApiBases()[0]
 
   try {
@@ -127,7 +132,7 @@ const request = async (method, url, body, options = {}) => {
       body: body != null ? JSON.stringify(body) : undefined,
       credentials: 'include'
     })
-    return { ...(await handleResponse(res, { autoRedirect, baseUrl: base })), baseUrl: base }
+    return { ...(await handleResponse(res, { autoRedirect, baseUrl: base, authToken })), baseUrl: base }
   } catch (e) {
     return { error: e.message || 'Network error', status: 0, baseUrl: base }
   }
@@ -136,6 +141,7 @@ const request = async (method, url, body, options = {}) => {
 const fetchWithBase = async (baseUrl, url, options, method = 'GET', body = null) => {
   const { includeAuth = true, includeTurnstile = true, autoRedirect = true } = options
   const headers = createHeaders(includeAuth, includeTurnstile, baseUrl, options)
+  const authToken = String(headers.Authorization || '').replace(/^Bearer\s+/i, '')
 
   const res = await fetch(`${baseUrl}${url}`, {
     method,
@@ -144,7 +150,7 @@ const fetchWithBase = async (baseUrl, url, options, method = 'GET', body = null)
     credentials: 'include'
   })
 
-  const result = await handleResponse(res, { autoRedirect, baseUrl })
+  const result = await handleResponse(res, { autoRedirect, baseUrl, authToken })
   return { ...result, baseUrl }
 }
 

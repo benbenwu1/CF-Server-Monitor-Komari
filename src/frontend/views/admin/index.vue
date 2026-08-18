@@ -40,7 +40,7 @@
               v-model.number="selectedApiIndex"
               class="form-select admin-site-select"
               :title="trans.apiEndpoint"
-              :disabled="adminSiteLoading || sessionRefreshing || !!sessionRevokingId"
+              :disabled="adminSiteLoading || sessionMutationActive"
               @change="handleAdminApiIndexChange"
             >
               <option
@@ -51,7 +51,9 @@
                 [{{ index }}] {{ base }}
               </option>
             </select>
-            <button @click="logout" class="btn btn-red">🚪 {{ trans.logout }}</button>
+            <button @click="logout" class="btn btn-red" :disabled="sessionMutationActive">
+              {{ sessionLoggingOut ? '⏳' : '🚪' }} {{ trans.logout }}
+            </button>
           </div>
         </div>
 
@@ -187,6 +189,7 @@
           :loading="sessionLoading"
           :refreshing="sessionRefreshing"
           :revoking-session-id="sessionRevokingId"
+          :mutation-active="sessionMutationActive"
           @refresh-list="loadAdminSessions"
           @refresh-current="refreshCurrentSession"
           @revoke="revokeAdminSessionById"
@@ -1011,6 +1014,10 @@ const adminSessions = ref([])
 const sessionLoading = ref(false)
 const sessionRefreshing = ref(false)
 const sessionRevokingId = ref('')
+const sessionLoggingOut = ref(false)
+const sessionMutationActive = computed(() => (
+  sessionLoggingOut.value || sessionRefreshing.value || !!sessionRevokingId.value
+))
 let sessionRequestSequence = 0
 let sessionMutationSequence = 0
 
@@ -1164,22 +1171,28 @@ const handleLogin = async () => {
 }
 
 const logout = async () => {
+  if (sessionMutationActive.value) return
+  const apiIndex = selectedApiIndex.value
+  sessionLoggingOut.value = true
+  try {
+    await adminApi({ action: 'clear_theme_preview_auth' }, apiIndex)
+  } catch (_) {
+  }
   const serverRevoked = await revokeCurrentSessionForLogout(
-    () => adminApiForSite({ action: 'session_logout' })
+    index => adminApi({ action: 'session_logout' }, index),
+    apiIndex
   )
   if (!serverRevoked) {
     window.alert(trans.value.sessionLogoutFailed)
+    sessionLoggingOut.value = false
     return
   }
-  try {
-    await adminApiForSite({ action: 'clear_theme_preview_auth' })
-  } catch (_) {
-  }
-  apiLogout(selectedApiIndex.value)
+  apiLogout(apiIndex)
   isLoggedIn.value = false
   latestAgentVersion.value = ''
   clearTurnstile()
   await loadTurnstileConfig()
+  sessionLoggingOut.value = false
   window.location.href = '/'
 }
 
@@ -2120,7 +2133,7 @@ const loadAdminSessions = async () => {
 }
 
 const refreshCurrentSession = async () => {
-  if (sessionRefreshing.value) return
+  if (sessionMutationActive.value) return
   const apiIndex = selectedApiIndex.value
   const mutationSequence = ++sessionMutationSequence
   sessionRefreshing.value = true
@@ -2146,7 +2159,7 @@ const refreshCurrentSession = async () => {
 }
 
 const revokeAdminSessionById = async (sessionId) => {
-  if (!sessionId || sessionRevokingId.value) return
+  if (!sessionId || sessionMutationActive.value) return
   if (!window.confirm(trans.value.sessionRevokeConfirm)) return
   const apiIndex = selectedApiIndex.value
   const mutationSequence = ++sessionMutationSequence

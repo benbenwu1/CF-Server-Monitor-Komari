@@ -6,7 +6,7 @@
           <div class="section-title"><span>▸</span> {{ trans.sessions }}</div>
           <p class="text-muted text-sm">{{ trans.sessionHint }}</p>
         </div>
-        <button type="button" class="btn" :disabled="loading" @click="$emit('refresh-list')">
+        <button type="button" class="btn" :disabled="loading || mutationActive" @click="$emit('refresh-list')">
           {{ loading ? '⏳' : '↻' }} {{ trans.refresh }}
         </button>
       </div>
@@ -56,14 +56,14 @@
                   v-if="session.current"
                   type="button"
                   class="btn btn-sm"
-                  :disabled="refreshing"
+                  :disabled="mutationActive"
                   @click="$emit('refresh-current')"
                 >{{ refreshing ? '⏳' : '↻' }} {{ trans.sessionRefresh }}</button>
                 <button
                   v-else
                   type="button"
                   class="btn btn-sm btn-red"
-                  :disabled="revokingSessionId === session.id"
+                  :disabled="mutationActive"
                   @click="$emit('revoke', session.id)"
                 >{{ revokingSessionId === session.id ? '⏳' : '✕' }} {{ trans.sessionRevoke }}</button>
               </td>
@@ -82,7 +82,8 @@ defineProps({
   sessions: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   refreshing: { type: Boolean, default: false },
-  revokingSessionId: { type: String, default: '' }
+  revokingSessionId: { type: String, default: '' },
+  mutationActive: { type: Boolean, default: false }
 })
 
 defineEmits(['refresh-list', 'refresh-current', 'revoke'])

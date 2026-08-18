@@ -42,9 +42,15 @@ export function writeAdminToken(storage, baseUrl, token) {
   }
 }
 
-export function removeAdminToken(storage, baseUrl) {
+export function removeAdminToken(storage, baseUrl, { expectedToken } = {}) {
   if (!storage?.removeItem) return false
   try {
+    if (
+      expectedToken !== undefined &&
+      readAdminToken(storage, baseUrl) !== cleanToken(expectedToken)
+    ) {
+      return false
+    }
     storage.removeItem(tokenStorageKey(baseUrl))
     return true
   } catch (_) {

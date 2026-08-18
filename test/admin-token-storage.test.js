@@ -57,13 +57,15 @@ test('admin HTTP requests use and clear only the selected API base token', async
   const bases = ['https://first.example', 'https://second.example'];
   const storage = createStorage();
   const requests = [];
+  let replaceSecondTokenDuringRequest = true;
+  let reloads = 0;
 
   globalThis.window = {
     __APP_API_BASES__: bases,
     location: {
       origin: bases[0],
       pathname: '/admin',
-      reload() {},
+      reload() { reloads += 1; },
       assign() {}
     }
   };
@@ -74,6 +76,10 @@ test('admin HTTP requests use and clear only the selected API base token', async
   globalThis.fetch = async (url, options) => {
     requests.push({ url, authorization: options?.headers?.Authorization || '' });
     if (url.startsWith(bases[1])) {
+      if (replaceSecondTokenDuringRequest) {
+        replaceSecondTokenDuringRequest = false;
+        writeAdminToken(storage, bases[1], 'second-token-replacement');
+      }
       return new Response(null, { status: 401 });
     }
     return Response.json({ success: true });
@@ -84,15 +90,22 @@ test('admin HTTP requests use and clear only the selected API base token', async
     writeAdminToken(storage, bases[1], 'second-token');
     const { http } = await import(`../src/frontend/utils/http.js?token-test=${Date.now()}`);
 
-    const secondResult = await http.getByIndex('/admin/api', 1, { autoRedirect: false });
+    const secondResult = await http.getByIndex('/admin/api', 1);
     assert.equal(secondResult.status, 401);
     assert.equal(requests[0].authorization, 'Bearer second-token');
-    assert.equal(readAdminToken(storage, bases[1]), '');
+    assert.equal(readAdminToken(storage, bases[1]), 'second-token-replacement');
     assert.equal(readAdminToken(storage, bases[0]), 'first-token');
+    assert.equal(reloads, 0);
+
+    writeAdminToken(storage, bases[1], 'second-token');
+    await http.getByIndex('/admin/api', 1);
+    assert.equal(requests[1].authorization, 'Bearer second-token');
+    assert.equal(readAdminToken(storage, bases[1]), '');
+    assert.equal(reloads, 1);
 
     const firstResult = await http.getByIndex('/admin/api', 0, { autoRedirect: false });
     assert.equal(firstResult.status, 200);
-    assert.equal(requests[1].authorization, 'Bearer first-token');
+    assert.equal(requests[2].authorization, 'Bearer first-token');
   } finally {
     globalThis.window = originalWindow;
     if (originalStorageDescriptor) {

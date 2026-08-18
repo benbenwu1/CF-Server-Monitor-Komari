@@ -26,10 +26,10 @@ export function normalizeAdminSessions(payload) {
     }))
 }
 
-export async function revokeCurrentSessionForLogout(requestLogout) {
+export async function revokeCurrentSessionForLogout(requestLogout, apiIndex) {
   if (typeof requestLogout !== 'function') return false
   try {
-    const result = await requestLogout()
+    const result = await requestLogout(apiIndex)
     return !result?.error && result?.data?.success === true && result?.data?.revoked === true
   } catch (_) {
     return false

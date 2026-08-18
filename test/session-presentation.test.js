@@ -53,13 +53,18 @@ test('session presentation keeps only bounded device metadata from the admin res
 });
 
 test('logout only completes locally after the server confirms current-session revocation', async () => {
+  const requestedApiIndexes = [];
   assert.equal(
-    await revokeCurrentSessionForLogout(async () => ({
-      error: false,
-      data: { success: true, revoked: true }
-    })),
+    await revokeCurrentSessionForLogout(async apiIndex => {
+      requestedApiIndexes.push(apiIndex);
+      return {
+        error: false,
+        data: { success: true, revoked: true }
+      };
+    }, 2),
     true
   );
+  assert.deepEqual(requestedApiIndexes, [2]);
   assert.equal(
     await revokeCurrentSessionForLogout(async () => ({
       error: 'temporary_failure',
