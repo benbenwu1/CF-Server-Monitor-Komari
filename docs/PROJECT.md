@@ -14,7 +14,7 @@ Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
 - [`cloudflare-free-platform-2026.md`](cloudflare-free-platform-2026.md)：Cloudflare 官方免费额度、新增产品能力与本项目采用边界。
 - [`OPERATIONS.md`](OPERATIONS.md)：D1 Time Travel 恢复、Workers Logs/Traces 采样、脱敏和配额运维手册。
 
-控制面 P0 与独立管理审计界面已在本地分支完成并通过回归；仍不自动扩展到 P1/P2，未部署、未推送，除非另行明确授权。
+控制面 P0 与独立管理审计界面已推送到 `codex/reboot-foundation`。P1 只按路线图逐个切片推进，不自动扩展到 P2，也不自动部署。
 
 ## 上游关系
 
@@ -60,6 +60,16 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] 增加 D1 Time Travel、Workers Logs / Traces 采样与脱敏运维手册；UTC 00:00 Cron 幂等初始化后清理过期控制面记录。
 
 当前验证结果：42 项 Node 测试全部通过，前端生产构建和 `wrangler deploy --dry-run` 通过。管理审计已具备完整 API 和独立界面；通知仍为 Worker 内同步重试，Queues 异步投递保持 P1。
+
+## P1 实施状态（本地分支，尚未推送）
+
+- [x] Session 基础：密码登录创建随机设备会话，JWT 绑定 `sid`，每次鉴权同时验证签名、期限和 D1 活动会话。
+- [x] 会话列表：只返回认证方式、首次/最近 IP、User-Agent、创建/最近活动/过期时间、当前与在线状态，不保存或返回原始 JWT。
+- [x] 跨设备撤销：管理员可撤销其他活动会话，被撤销 JWT 下一次请求立即返回 401，当前会话保持可用；操作写入 `admin.session.revoke` 审计。
+- [x] 活跃时间最多每分钟落库一次，非关键 touch 写失败不会把有效鉴权误报为 401；过期或撤销满 30 天的记录由 UTC 午夜 Cron 清理。
+- [ ] Session refresh、服务端当前会话退出和管理界面仍是本工作包的下一切片；TOTP、OAuth/OIDC 尚未开始。
+
+这一切片当前为 45 项 Node 测试通过，生产构建和 Wrangler dry-run 通过；尚未部署。升级后旧的无 `sid` JWT 会失效，管理员需要重新登录一次。
 
 ## 明确不做
 

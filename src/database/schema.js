@@ -170,6 +170,26 @@ export async function initDatabase(db) {
       )
     `).run();
 
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS admin_sessions (
+        id TEXT PRIMARY KEY,
+        subject TEXT NOT NULL,
+        auth_method TEXT NOT NULL,
+        first_ip TEXT,
+        last_ip TEXT,
+        user_agent TEXT,
+        created_at INTEGER NOT NULL,
+        last_seen_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        revoked_at INTEGER
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_admin_sessions_active
+      ON admin_sessions(revoked_at, expires_at)
+    `).run();
+
     debug('✅ 数据库初始化完成');
     dbInitialized = true;
   } catch (e) {

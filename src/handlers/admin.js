@@ -1,4 +1,4 @@
-import { checkAuth, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
+import { getAuthContext, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, clearServersListCache } from '../utils/cache.js';
 import { clearAppearanceSettingsCache, isWssReportEnabled, normalizeBooleanSetting, normalizeDisplayMode, normalizeExpireReminder, normalizeLongHistoryPoints, normalizeResourceAlertRules, normalizeTgNotify, saveSiteOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
@@ -9,6 +9,7 @@ import { addServerColumns } from '../database/updateDatabase.js';
 import { clearResourceAlertState, sendNotification } from '../services/notification.js';
 import { listAuditEvents, recordAuditEvent } from '../services/audit.js';
 import { listNotificationDeliveries } from '../services/notificationDelivery.js';
+import { createAdminSession, listAdminSessions, revokeAdminSession } from '../services/adminSession.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
@@ -557,7 +558,12 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       }
 
       try {
-        const token = await generateToken(env, sys);
+        const session = await createAdminSession(env.DB, request, 'password');
+        const token = await generateToken(env, sys, {
+          sessionId: session.id,
+          issuedAt: session.created_at,
+          expiresAt: session.expires_at
+        });
         await recordLoginAuditEvent(
           env.DB,
           request,
@@ -583,11 +589,38 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       });
     }
 
-    if (!await checkAuth(request, env, sys)) {
+    const authContext = await getAuthContext(request, env, sys, ctx);
+    if (!authContext) {
       return simpleAuthResponse();
     }
 
-    if (data.action === 'get_settings') {
+    if (data.action === 'session_list') {
+      const sessions = await listAdminSessions(env.DB, authContext.sessionId);
+      return createSuccessResponse({
+        success: true,
+        sessions
+      });
+    }
+    else if (data.action === 'session_revoke') {
+      const result = await revokeAdminSession(
+        env.DB,
+        data.session_id,
+        authContext.sessionId
+      );
+      if (!result.revoked) {
+        return createBadRequestResponse(result.reason);
+      }
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.session.revoke',
+        targetType: 'admin_session',
+        targetId: data.session_id
+      });
+      return createSuccessResponse({
+        success: true,
+        revoked: true
+      });
+    }
+    else if (data.action === 'get_settings') {
       const fullSettings = loadFullSettings ? await loadFullSettings() : sys;
       const {
         jwt_secret,

@@ -1,6 +1,7 @@
 const ALGORITHM = { name: 'HMAC', hash: 'SHA-256' };
 import { verifyPasswordHash } from '../utils/common.js';
 import { isValidJwtSecret } from '../utils/settings.js';
+import { validateAdminSession } from '../services/adminSession.js';
 
 async function generateKeyFromSecret(secret) {
   const encoder = new TextEncoder();
@@ -70,21 +71,26 @@ function getJwtSecret(env, sys) {
   return fallback.padEnd(32, 'x').substring(0, 64);
 }
 
-export async function generateToken(env, sys) {
+export async function generateToken(env, sys, session = {}) {
+  const issuedAt = Number.isFinite(session.issuedAt) ? session.issuedAt : Date.now();
+  const expiresAt = Number.isFinite(session.expiresAt)
+    ? session.expiresAt
+    : issuedAt + 604800 * 1000;
   const payload = {
     sub: 'admin',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 604800
+    ...(session.sessionId ? { sid: session.sessionId } : {}),
+    iat: Math.floor(issuedAt / 1000),
+    exp: Math.floor(expiresAt / 1000)
   };
 
   const secret = getJwtSecret(env, sys);
   return signJwt(payload, secret);
 }
 
-export async function checkAuth(request, env, sys) {
+export async function getAuthContext(request, env, sys, ctx = null) {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader) {
-    return false;
+    return null;
   }
 
   const parts = authHeader.trim().split(/\s+/);
@@ -92,18 +98,29 @@ export async function checkAuth(request, env, sys) {
   const token = parts[1];
 
   if (scheme !== 'Bearer' || !token) {
-    return false;
+    return null;
   }
 
   const secret = getJwtSecret(env, sys);
 
-  try {
-    const payload = await verifyJwt(token, secret);
-    return payload !== null;
-  } catch (e) {
-    console.error('Auth check error:', e);
-    return false;
+  const payload = await verifyJwt(token, secret);
+  if (!payload || payload.sub !== 'admin' || !payload.sid) {
+    return null;
   }
+
+  const session = await validateAdminSession(env.DB, payload.sid, request, { ctx });
+  if (!session || session.subject !== payload.sub) {
+    return null;
+  }
+
+  return {
+    payload,
+    sessionId: payload.sid
+  };
+}
+
+export async function checkAuth(request, env, sys, ctx = null) {
+  return await getAuthContext(request, env, sys, ctx) !== null;
 }
 
 export async function validateCredentials(request, env, sys) {

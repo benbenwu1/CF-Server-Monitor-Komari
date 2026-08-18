@@ -2,6 +2,7 @@ import { initDatabase, weeklyCleanup, getMetricsHistory, clearHistory } from './
 import { checkOfflineNodes, checkExpiringServers, checkResourceAlerts } from './services/notification.js';
 import { cleanupAuditEvents } from './services/audit.js';
 import { cleanupNotificationDeliveries } from './services/notificationDelivery.js';
+import { cleanupAdminSessions } from './services/adminSession.js';
 import { updateDatabase } from './database/updateDatabase.js';
 import { handleAdminAPI } from './handlers/admin.js';
 import { serveFrontend } from './handlers/frontend.js';
@@ -425,11 +426,12 @@ export default {
       }
     } else if (cron === '0 * * * *') {
       if (hour === 0) {
-        const [auditDeleted, deliveryDeleted] = await Promise.all([
+        const [auditDeleted, deliveryDeleted, sessionDeleted] = await Promise.all([
           cleanupAuditEvents(env.DB),
-          cleanupNotificationDeliveries(env.DB)
+          cleanupNotificationDeliveries(env.DB),
+          cleanupAdminSessions(env.DB)
         ]);
-        debug(`[Cron] 控制面记录清理完成: audit=${auditDeleted}, deliveries=${deliveryDeleted}`);
+        debug(`[Cron] 控制面记录清理完成: audit=${auditDeleted}, deliveries=${deliveryDeleted}, sessions=${sessionDeleted}`);
       }
 
       if (day === 0 && hour === 0) {

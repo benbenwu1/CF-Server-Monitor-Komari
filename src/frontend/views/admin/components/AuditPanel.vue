@@ -107,6 +107,7 @@ defineEmits(['refresh', 'event-type-change', 'page-change'])
 const eventTypes = Object.freeze([
   'auth.login.success',
   'auth.login.failure',
+  'admin.session.revoke',
   'admin.settings.update',
   'admin.server.create',
   'admin.server.update',
