@@ -69,9 +69,14 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] 活跃时间最多每分钟落库一次，非关键 touch 写失败不会把有效鉴权误报为 401；过期或撤销满 30 天的记录由 UTC 午夜 Cron 清理。
 - [x] Session refresh 使用 D1 原子批处理轮换 `sid` 与 JWT，旧 JWT 立即失效；当前设备服务端退出会撤销会话，两类操作均写入不含令牌的审计事件。
 - [x] 独立 Session 管理 Tab 按需加载，展示脱敏设备元数据、当前/在线状态，支持当前令牌轮换和跨设备确认撤销；JWT 按 API base 隔离，切换站点时会丢弃过期响应。
-- [ ] 下一工作包为 TOTP 2FA；OAuth/OIDC 和其他 P1 工作包尚未开始。
+- [x] TOTP 2FA：RFC 6238 / SHA-1 / 30 秒窗口，secret 使用独立 Cloudflare Secret 派生的 AES-GCM 密钥加密保存；支持 setup/confirm/disable 和 10 个一次性恢复码。
+- [x] TOTP 同时保护密码登录和关键设置；连续 5 次失败会按 IP/五分钟窗口限流。初始密钥与恢复码仅在创建时显示，D1、设置读取和审计均不回显。
+- [x] 管理端支持身份验证器/恢复码登录、手动配置 URI、一次性恢复码确认和停用流程；未配置 `TOTP_ENCRYPTION_KEY` 时拒绝启用，不使用不安全回退。
+- [ ] 下一工作包为 GitHub OAuth；其他 P1 工作包尚未开始。
 
 Session 工作包为 53 项 Node 测试通过，生产构建和 Wrangler dry-run 通过；尚未部署。升级后旧的无 `sid` JWT 会失效；旧前端单值 Token 会一次性迁移到当前选定站点。
+
+TOTP 工作包将全量测试扩展到 55 项；代码与界面已完成，但尚未部署，也未创建或写入线上 `TOTP_ENCRYPTION_KEY`。
 
 ## 明确不做
 

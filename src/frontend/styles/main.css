@@ -1904,6 +1904,37 @@ body::before {
     color: var(--text-muted);
 }
 
+.session-secret-code {
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--accent-cyan);
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+
+.session-recovery-codes {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.session-recovery-codes code {
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--accent-yellow);
+    text-align: center;
+    user-select: all;
+}
+
+.form-group-action {
+    display: flex;
+    align-items: flex-end;
+}
+
 .server-ip-list {
     display: inline-flex;
     flex-direction: column;

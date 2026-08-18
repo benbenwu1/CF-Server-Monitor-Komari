@@ -185,9 +185,10 @@
 | 工作包 | 当前结果 | 下一切片 |
 | --- | --- | --- |
 | Session 管理 | 已完成单管理员 D1 设备会话、JWT `sid` 绑定、按 API base 隔离前端 Token、脱敏列表、最近活动节流、跨设备撤销、refresh 原子轮换、服务端退出、管理界面、立即失效、三类会话审计和 30 天过期记录清理；53 项测试、生产构建与 Wrangler dry-run 通过 | 工作包完成；旧无 `sid` JWT 在升级后需重新登录，旧单值 Token 只迁移到当前选定站点 |
-| TOTP 2FA | 尚未开始 | 加密保存 secret、setup/confirm/disable、recovery codes，并保护登录和关键设置 |
+| TOTP 2FA | 已完成 AES-GCM 加密 secret、RFC 6238 验证、setup/confirm/disable、10 个一次性恢复码、登录与关键设置保护、五分钟失败限流、管理界面和安全审计；初始材料只显示一次 | 工作包完成；启用前必须单独配置并妥善备份 Cloudflare Secret `TOTP_ENCRYPTION_KEY` |
+| GitHub OAuth | 尚未开始 | OAuth state、回调域名、账户绑定；保留密码应急登录 |
 
-Session 工作包已形成独立 P1 检查点但未部署；TOTP、OAuth/OIDC 和其他 P1 工作包均未开始。
+Session 与 TOTP 已形成独立 P1 检查点但未部署；OAuth/OIDC 和其他 P1 工作包均未开始。
 
 ### P2：实验或额度敏感
 

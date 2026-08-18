@@ -32,6 +32,37 @@
             </button>
           </div>
         </div>
+        <div v-if="totpRequired" class="login-form-group">
+          <label class="login-label">
+            {{ useRecovery ? trans.totpRecoveryCode : trans.totpCode }}
+          </label>
+          <input
+            v-if="!useRecovery"
+            type="text"
+            name="totp_code"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            maxlength="6"
+            pattern="[0-9]{6}"
+            v-model.trim="loginForm.totp_code"
+            required
+            class="login-input"
+            placeholder="123456"
+          >
+          <input
+            v-else
+            type="text"
+            name="recovery_code"
+            autocomplete="one-time-code"
+            v-model.trim="loginForm.recovery_code"
+            required
+            class="login-input"
+            placeholder="XXXX-XXXX-XXXX-XXXX"
+          >
+          <button type="button" class="btn btn-sm mt-2" @click="$emit('toggle-recovery')">
+            {{ useRecovery ? trans.totpUseAuthenticator : trans.totpUseRecovery }}
+          </button>
+        </div>
         <div v-if="turnstileSiteKey && (turnstileLoginEnabled || (turnstileEnabled && !turnstileVerified))" class="login-form-group">
           <div id="admin-turnstile-container"></div>
         </div>
@@ -55,11 +86,13 @@ defineProps({
   passwordVisible: { type: Object, required: true },
   loginError: { type: String, default: '' },
   loginLoading: { type: Boolean, default: false },
+  totpRequired: { type: Boolean, default: false },
+  useRecovery: { type: Boolean, default: false },
   turnstileSiteKey: { type: String, default: '' },
   turnstileLoginEnabled: { type: Boolean, default: false },
   turnstileEnabled: { type: Boolean, default: false },
   turnstileVerified: { type: Boolean, default: false }
 })
 
-defineEmits(['login', 'toggle-password', 'api-index-change'])
+defineEmits(['login', 'toggle-password', 'api-index-change', 'toggle-recovery'])
 </script>

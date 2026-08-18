@@ -71,7 +71,16 @@ const handleResponse = async (res, options = {}) => {
     if (autoRedirect && removedCurrentToken) {
       redirectToAdminLogin()
     }
-    return { error: DEFAULT_ERROR_MESSAGES[401], status: 401 }
+    let responseBody = null
+    try {
+      responseBody = await res.json()
+    } catch (_) {
+    }
+    return {
+      error: responseBody?.error || DEFAULT_ERROR_MESSAGES[401],
+      code: responseBody?.code || 401,
+      status: 401
+    }
   }
   
   if (res.status === 403) {

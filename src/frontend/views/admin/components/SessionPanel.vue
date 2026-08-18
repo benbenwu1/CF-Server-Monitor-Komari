@@ -72,6 +72,7 @@
         </table>
       </div>
     </div>
+    <slot />
   </div>
 </template>
 

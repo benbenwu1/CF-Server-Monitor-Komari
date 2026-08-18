@@ -10,6 +10,7 @@ import { clearResourceAlertState, sendNotification } from '../services/notificat
 import { listAuditEvents, recordAuditEvent } from '../services/audit.js';
 import { listNotificationDeliveries } from '../services/notificationDelivery.js';
 import { createAdminSession, listAdminSessions, refreshAdminSession, revokeAdminSession, revokeCurrentAdminSession } from '../services/adminSession.js';
+import { beginAdminTotpSetup, confirmAdminTotpSetup, disableAdminTotp, isAdminTotpEnabled, isTotpEncryptionAvailable, requiresTotpForSettings, verifyAdminSecondFactor } from '../services/totp.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
@@ -21,6 +22,17 @@ const THEME_PREVIEW_AUTH_TTL = 600;
 const DURABLE_OBJECTS_WEBSOCKET_MESSAGE_BILLING_RATIO = 20;
 const LOGIN_FAILURE_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 const LOGIN_FAILURE_AUDIT_WRITE_LIMIT = 20;
+const SECOND_FACTOR_ATTEMPT_LIMIT = 5;
+
+function createSecondFactorResponse(code, status = 401) {
+  return new Response(JSON.stringify({
+    error: code,
+    code
+  }), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
 
 async function tryRecordAuditEvent(db, event) {
   try {
@@ -36,11 +48,30 @@ async function tryRecordAuditEvent(db, event) {
   }
 }
 
+function getLoginFailureDedupeKey(request, occurredAt = Date.now()) {
+  const ipAddress = request.headers.get('CF-Connecting-IP') || null;
+  return ipAddress
+    ? `auth.login.failure:${ipAddress}:${Math.floor(occurredAt / LOGIN_FAILURE_DEDUPE_WINDOW_MS)}`
+    : null;
+}
+
+async function isSecondFactorRateLimited(db, request, occurredAt = Date.now()) {
+  const dedupeKey = getLoginFailureDedupeKey(request, occurredAt);
+  if (!dedupeKey) return false;
+  const event = await db.prepare(`
+    SELECT count
+    FROM audit_events
+    WHERE dedupe_key = ?
+    LIMIT 1
+  `).bind(dedupeKey).first();
+  return Number(event?.count || 0) >= SECOND_FACTOR_ATTEMPT_LIMIT;
+}
+
 async function recordLoginAuditEvent(db, request, eventType, outcome, detail) {
   const occurredAt = Date.now();
   const ipAddress = request.headers.get('CF-Connecting-IP') || null;
-  const dedupeKey = eventType === 'auth.login.failure' && ipAddress
-    ? `${eventType}:${ipAddress}:${Math.floor(occurredAt / LOGIN_FAILURE_DEDUPE_WINDOW_MS)}`
+  const dedupeKey = eventType === 'auth.login.failure'
+    ? getLoginFailureDedupeKey(request, occurredAt)
     : null;
 
   await tryRecordAuditEvent(db, {
@@ -557,8 +588,50 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         }
       }
 
+      let secondFactor;
+      const hasSecondFactorInput = !!String(data.totp_code || data.recovery_code || '').trim();
+      if (
+        hasSecondFactorInput &&
+        await isAdminTotpEnabled(env.DB) &&
+        await isSecondFactorRateLimited(env.DB, request)
+      ) {
+        return new Response(JSON.stringify({
+          error: 'second_factor_rate_limited',
+          code: 'second_factor_rate_limited'
+        }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '300' }
+        });
+      }
       try {
-        const session = await createAdminSession(env.DB, request, 'password');
+        secondFactor = await verifyAdminSecondFactor(env.DB, env.TOTP_ENCRYPTION_KEY, {
+          totpCode: data.totp_code,
+          recoveryCode: data.recovery_code
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+
+      if (secondFactor.required && !secondFactor.valid) {
+        if (hasSecondFactorInput) {
+          await recordLoginAuditEvent(
+            env.DB,
+            request,
+            'auth.login.failure',
+            'failure',
+            { reason: 'invalid_second_factor' }
+          );
+        }
+        return createSecondFactorResponse(hasSecondFactorInput ? 'invalid_second_factor' : 'totp_required');
+      }
+
+      try {
+        const authMethod = secondFactor.method === 'recovery'
+          ? 'password_recovery'
+          : secondFactor.method === 'totp'
+            ? 'password_totp'
+            : 'password';
+        const session = await createAdminSession(env.DB, request, authMethod);
         const token = await generateToken(env, sys, {
           sessionId: session.id,
           issuedAt: session.created_at,
@@ -569,13 +642,13 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
           request,
           'auth.login.success',
           'success',
-          { method: 'password' }
+          { method: authMethod }
         );
         return createSuccessResponse({
           success: true,
           token: token,
           message: 'loginSuccessful'
-        });
+        }, { 'Cache-Control': 'no-store' });
       } catch (e) {
         return createErrorResponse(e);
       }
@@ -600,6 +673,59 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         success: true,
         sessions
       });
+    }
+    else if (data.action === 'totp_setup') {
+      if (!isTotpEncryptionAvailable(env.TOTP_ENCRYPTION_KEY)) {
+        return createBadRequestResponse('totp_encryption_key_unavailable');
+      }
+      const setup = await beginAdminTotpSetup(
+        env.DB,
+        env.TOTP_ENCRYPTION_KEY,
+        sys?.username || env.API_USER_NAME || 'admin'
+      );
+      if (!setup.success) return createBadRequestResponse(setup.reason);
+      return createSuccessResponse({
+        success: true,
+        secret: setup.secret,
+        otpauth_uri: setup.otpauthUri
+      }, { 'Cache-Control': 'no-store' });
+    }
+    else if (data.action === 'totp_confirm') {
+      if (!isTotpEncryptionAvailable(env.TOTP_ENCRYPTION_KEY)) {
+        return createBadRequestResponse('totp_encryption_key_unavailable');
+      }
+      const confirmation = await confirmAdminTotpSetup(
+        env.DB,
+        env.TOTP_ENCRYPTION_KEY,
+        data.code
+      );
+      if (!confirmation.success) return createBadRequestResponse(confirmation.reason);
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.totp.enable',
+        targetType: 'admin_security'
+      });
+      return createSuccessResponse({
+        success: true,
+        enabled: true,
+        recovery_codes: confirmation.recoveryCodes
+      }, { 'Cache-Control': 'no-store' });
+    }
+    else if (data.action === 'totp_disable') {
+      const disabled = await disableAdminTotp(env.DB, env.TOTP_ENCRYPTION_KEY, {
+        totpCode: data.code,
+        recoveryCode: data.recovery_code
+      });
+      if (!disabled.success) {
+        return disabled.reason === 'totp_not_enabled'
+          ? createBadRequestResponse(disabled.reason)
+          : createSecondFactorResponse(disabled.reason, 428);
+      }
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.totp.disable',
+        targetType: 'admin_security',
+        detail: { method: disabled.method }
+      });
+      return createSuccessResponse({ success: true, enabled: false });
     }
     else if (data.action === 'session_logout') {
       const revoked = await revokeCurrentAdminSession(env.DB, authContext.sessionId);
@@ -639,7 +765,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         success: true,
         token: replacement.token,
         expires_at: replacement.expires_at
-      });
+      }, { 'Cache-Control': 'no-store' });
     }
     else if (data.action === 'session_revoke') {
       const result = await revokeAdminSession(
@@ -673,6 +799,8 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         success: true,
         settings: {
           ...safeSettings,
+          totp_enabled: await isAdminTotpEnabled(env.DB),
+          totp_available: isTotpEncryptionAvailable(env.TOTP_ENCRYPTION_KEY),
           has_notification_credential: !!String(tg_bot_token || '').trim(),
           has_notification_target: !!String(tg_chat_id || '').trim()
         },
@@ -853,6 +981,20 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
     }
     else if (data.action === 'save_settings') {
       const settings = data.settings || {};
+      if (
+        await isAdminTotpEnabled(env.DB) &&
+        requiresTotpForSettings(settings, sys)
+      ) {
+        const verification = await verifyAdminSecondFactor(env.DB, env.TOTP_ENCRYPTION_KEY, {
+          totpCode: data.totp_code
+        });
+        if (!verification.valid) {
+          return createSecondFactorResponse(
+            String(data.totp_code || '').trim() ? 'invalid_second_factor' : 'totp_required',
+            428
+          );
+        }
+      }
       const currentNotificationProvider = String(sys?.notification_provider || 'auto').trim().toLowerCase();
       const requestedNotificationProvider = String(
         settings.notification_provider ?? currentNotificationProvider

@@ -80,7 +80,10 @@ test('admin HTTP requests use and clear only the selected API base token', async
         replaceSecondTokenDuringRequest = false;
         writeAdminToken(storage, bases[1], 'second-token-replacement');
       }
-      return new Response(null, { status: 401 });
+      return Response.json(
+        { error: 'totp_required', code: 'totp_required' },
+        { status: 401 }
+      );
     }
     return Response.json({ success: true });
   };
@@ -92,6 +95,7 @@ test('admin HTTP requests use and clear only the selected API base token', async
 
     const secondResult = await http.getByIndex('/admin/api', 1);
     assert.equal(secondResult.status, 401);
+    assert.equal(secondResult.code, 'totp_required');
     assert.equal(requests[0].authorization, 'Bearer second-token');
     assert.equal(readAdminToken(storage, bases[1]), 'second-token-replacement');
     assert.equal(readAdminToken(storage, bases[0]), 'first-token');

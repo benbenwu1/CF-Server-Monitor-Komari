@@ -10,12 +10,15 @@
       :password-visible="passwordVisible"
       :login-error="loginError"
       :login-loading="loginLoading"
+      :totp-required="totpLoginRequired"
+      :use-recovery="loginUseRecovery"
       :turnstile-site-key="turnstileSiteKey"
       :turnstile-login-enabled="turnstileLoginEnabled"
       :turnstile-enabled="turnstileEnabled"
       :turnstile-verified="turnstileVerified"
       @login="handleLogin"
       @toggle-password="togglePassword"
+      @toggle-recovery="toggleLoginRecovery"
       @api-index-change="handleApiIndexChange"
     />
 
@@ -40,7 +43,7 @@
               v-model.number="selectedApiIndex"
               class="form-select admin-site-select"
               :title="trans.apiEndpoint"
-              :disabled="adminSiteLoading || sessionMutationActive"
+              :disabled="adminSiteLoading || sessionMutationActive || totpBusy"
               @change="handleAdminApiIndexChange"
             >
               <option
@@ -51,7 +54,7 @@
                 [{{ index }}] {{ base }}
               </option>
             </select>
-            <button @click="logout" class="btn btn-red" :disabled="sessionMutationActive">
+            <button @click="logout" class="btn btn-red" :disabled="sessionMutationActive || totpBusy">
               {{ sessionLoggingOut ? '⏳' : '🚪' }} {{ trans.logout }}
             </button>
           </div>
@@ -193,7 +196,20 @@
           @refresh-list="loadAdminSessions"
           @refresh-current="refreshCurrentSession"
           @revoke="revokeAdminSessionById"
-        />
+        >
+          <TotpPanel
+            :trans="trans"
+            :enabled="totpEnabled"
+            :available="totpAvailable"
+            :setup="totpSetup"
+            :recovery-codes="totpRecoveryCodes"
+            :busy="totpBusy"
+            @setup="startTotpSetup"
+            @confirm="confirmTotpSetup"
+            @disable="disableTotp"
+            @acknowledge-recovery="totpRecoveryCodes = []"
+          />
+        </SessionPanel>
 
         <ThemeStorePanel
           :trans="trans"
@@ -594,6 +610,7 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
 import AuditPanel from './components/AuditPanel.vue'
 import SessionPanel from './components/SessionPanel.vue'
+import TotpPanel from './components/TotpPanel.vue'
 import ThemeStorePanel from './components/ThemeStorePanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'
@@ -861,9 +878,11 @@ const syncApiIndexQuery = () => {
 const adminApiForSite = (data) => adminApi(data, selectedApiIndex.value)
 
 const isLoggedIn = ref(false)
-const loginForm = ref({ username: '', password: '' })
+const loginForm = ref({ username: '', password: '', totp_code: '', recovery_code: '' })
 const loginError = ref('')
 const loginLoading = ref(false)
+const totpLoginRequired = ref(false)
+const loginUseRecovery = ref(false)
 const adminSiteLoading = ref(false)
 const activeTab = ref('servers')
 const servers = ref([])
@@ -1020,6 +1039,11 @@ const sessionMutationActive = computed(() => (
 ))
 let sessionRequestSequence = 0
 let sessionMutationSequence = 0
+const totpEnabled = ref(false)
+const totpAvailable = ref(false)
+const totpSetup = ref(null)
+const totpRecoveryCodes = ref([])
+const totpBusy = ref(false)
 
 const saveResult = ref(null)
 
@@ -1149,9 +1173,22 @@ const handleLogin = async () => {
     return
   }
 
-  const result = await login(loginForm.value.username, loginForm.value.password, turnstileToken.value, selectedApiIndex.value)
+  const result = await login(
+    loginForm.value.username,
+    loginForm.value.password,
+    turnstileToken.value,
+    selectedApiIndex.value,
+    {
+      totpCode: totpLoginRequired.value && !loginUseRecovery.value ? loginForm.value.totp_code : '',
+      recoveryCode: totpLoginRequired.value && loginUseRecovery.value ? loginForm.value.recovery_code : ''
+    }
+  )
   if (!result.error) {
     isLoggedIn.value = true
+    totpLoginRequired.value = false
+    loginUseRecovery.value = false
+    loginForm.value.totp_code = ''
+    loginForm.value.recovery_code = ''
     syncApiIndexQuery()
     clearTurnstile()
     turnstileVerified.value = hasSharedTurnstileVerified()
@@ -1161,6 +1198,19 @@ const handleLogin = async () => {
       loadLatestAgentVersion(),
       loadNotificationDeliveries()
     ])
+  } else if ([
+    'totp_required',
+    'invalid_second_factor',
+    'second_factor_rate_limited'
+  ].includes(result.code)) {
+    totpLoginRequired.value = true
+    loginError.value = result.code === 'second_factor_rate_limited'
+      ? trans.value.totpRateLimited
+      : result.code === 'invalid_second_factor'
+        ? trans.value.totpInvalidCode
+        : trans.value.totpRequired
+    clearTurnstile()
+    resetTurnstile('#admin-turnstile-container')
   } else {
     loginError.value = result.status === 403 ? 'Please complete the verification' : trans.value.errorInvalidUsername
     loginForm.value.password = ''
@@ -1168,6 +1218,13 @@ const handleLogin = async () => {
     resetTurnstile('#admin-turnstile-container')
   }
   loginLoading.value = false
+}
+
+const toggleLoginRecovery = () => {
+  loginUseRecovery.value = !loginUseRecovery.value
+  loginForm.value.totp_code = ''
+  loginForm.value.recovery_code = ''
+  loginError.value = ''
 }
 
 const logout = async () => {
@@ -1189,6 +1246,8 @@ const logout = async () => {
   }
   apiLogout(apiIndex)
   isLoggedIn.value = false
+  totpSetup.value = null
+  totpRecoveryCodes.value = []
   latestAgentVersion.value = ''
   clearTurnstile()
   await loadTurnstileConfig()
@@ -1231,6 +1290,10 @@ const loadTurnstileConfig = async () => {
 
 const handleApiIndexChange = async (newIndex) => {
   selectedApiIndex.value = newIndex
+  totpLoginRequired.value = false
+  loginUseRecovery.value = false
+  loginForm.value.totp_code = ''
+  loginForm.value.recovery_code = ''
   syncApiIndexQuery()
   await nextTick()
   await loadTurnstileConfig()
@@ -1247,6 +1310,11 @@ const resetAdminContext = () => {
   sessionLoading.value = false
   sessionRefreshing.value = false
   sessionRevokingId.value = ''
+  totpSetup.value = null
+  totpRecoveryCodes.value = []
+  totpBusy.value = false
+  totpEnabled.value = false
+  totpAvailable.value = false
   selectedServers.value = []
   showEditModal.value = false
   showDeleteModal.value = false
@@ -1336,6 +1404,8 @@ const loadSettings = async () => {
         csp_api: settingsData.csp_api || ''
       }
       savedNotificationProvider.value = settings.value.notification_provider
+      totpEnabled.value = settingsData.totp_enabled === true
+      totpAvailable.value = settingsData.totp_available === true
       applyMikusThemeOptions(settingsData.theme_options)
       changeAdminPassword.value = !String(settings.value.username || '').trim()
       apiSecret.value = data.api_secret || ''
@@ -1500,7 +1570,17 @@ const saveSettings = async () => {
   }
 
   try {
-    const result = await adminApiForSite(data)
+    let result = await adminApiForSite(data)
+    if (result.status === 428 && (
+      result.code === 'totp_required' || result.code === 'invalid_second_factor'
+    )) {
+      const code = window.prompt(trans.value.totpSettingsPrompt)
+      if (!code) {
+        saveResult.value = { success: false, error: trans.value.totpRequired }
+        return
+      }
+      result = await adminApiForSite({ ...data, totp_code: String(code).trim() })
+    }
     if (!result.error) {
       saveResult.value = { success: true }
       applyMikusThemeOptions(themeOptionsResult.value)
@@ -2179,6 +2259,75 @@ const revokeAdminSessionById = async (sessionId) => {
     if (mutationSequence === sessionMutationSequence) {
       sessionRevokingId.value = ''
     }
+  }
+}
+
+const startTotpSetup = async () => {
+  if (totpBusy.value || !totpAvailable.value) return
+  const apiIndex = selectedApiIndex.value
+  totpBusy.value = true
+  try {
+    const result = await adminApi({ action: 'totp_setup' }, apiIndex)
+    if (apiIndex !== selectedApiIndex.value) return
+    if (result.error) {
+      alertMessage.value = getMessage(result.error) || result.error
+      return
+    }
+    totpSetup.value = {
+      secret: String(result.data?.secret || ''),
+      otpauth_uri: String(result.data?.otpauth_uri || '')
+    }
+    totpRecoveryCodes.value = []
+  } finally {
+    if (apiIndex === selectedApiIndex.value) totpBusy.value = false
+  }
+}
+
+const confirmTotpSetup = async (code) => {
+  if (totpBusy.value || !/^\d{6}$/.test(String(code || '').trim())) return
+  const apiIndex = selectedApiIndex.value
+  totpBusy.value = true
+  try {
+    const result = await adminApi({ action: 'totp_confirm', code: String(code).trim() }, apiIndex)
+    if (apiIndex !== selectedApiIndex.value) return
+    if (result.error) {
+      alertMessage.value = getMessage(result.error) || result.error
+      return
+    }
+    totpEnabled.value = true
+    totpSetup.value = null
+    totpRecoveryCodes.value = Array.isArray(result.data?.recovery_codes)
+      ? result.data.recovery_codes.map(value => String(value)).slice(0, 10)
+      : []
+  } finally {
+    if (apiIndex === selectedApiIndex.value) totpBusy.value = false
+  }
+}
+
+const disableTotp = async (code) => {
+  const normalized = String(code || '').trim()
+  if (totpBusy.value || !normalized) return
+  const apiIndex = selectedApiIndex.value
+  totpBusy.value = true
+  try {
+    const result = await adminApi({
+      action: 'totp_disable',
+      ...(/^\d{6}$/.test(normalized)
+        ? { code: normalized }
+        : { recovery_code: normalized })
+    }, apiIndex)
+    if (apiIndex !== selectedApiIndex.value) return
+    if (result.error) {
+      alertMessage.value = result.code === 'invalid_second_factor'
+        ? trans.value.totpInvalidCode
+        : getMessage(result.error) || result.error
+      return
+    }
+    totpEnabled.value = false
+    totpSetup.value = null
+    totpRecoveryCodes.value = []
+  } finally {
+    if (apiIndex === selectedApiIndex.value) totpBusy.value = false
   }
 }
 

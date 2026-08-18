@@ -346,11 +346,17 @@ export const adminApi = async (data, apiIndex = 0) => {
   return result
 }
 
-export const login = async (username, password, turnstileToken = '', apiIndex = 0) => {
+export const login = async (username, password, turnstileToken = '', apiIndex = 0, secondFactor = {}) => {
   if (turnstileToken) {
     localStorage.setItem('turnstile_token', turnstileToken)
   }
-  const result = await http.postByIndex('/admin/api', { action: 'login', username, password }, apiIndex, { autoRedirect: false })
+  const result = await http.postByIndex('/admin/api', {
+    action: 'login',
+    username,
+    password,
+    ...(secondFactor.totpCode ? { totp_code: secondFactor.totpCode } : {}),
+    ...(secondFactor.recoveryCode ? { recovery_code: secondFactor.recoveryCode } : {})
+  }, apiIndex, { autoRedirect: false })
   
   if (!result.error && result.data && result.data.token) {
     if (!setAuthToken(result.data.token, apiIndex)) {

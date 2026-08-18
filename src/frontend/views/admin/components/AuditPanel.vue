@@ -110,6 +110,8 @@ const eventTypes = Object.freeze([
   'admin.session.logout',
   'admin.session.refresh',
   'admin.session.revoke',
+  'admin.totp.enable',
+  'admin.totp.disable',
   'admin.settings.update',
   'admin.server.create',
   'admin.server.update',

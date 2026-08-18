@@ -28,6 +28,16 @@
 
 不要将 Keychain 读取结果打印到终端；只允许通过标准输入或进程变量直接传给 `curl` / `wrangler secret put`。
 
+### TOTP 加密 Secret（启用前必需）
+
+TOTP 代码已经支持独立的 `TOTP_ENCRYPTION_KEY`，但当前线上测试环境未创建或写入该 Secret，TOTP 也未启用。部署代码后，管理员必须先用 Cloudflare 的交互式 Secret 输入配置一个稳定、随机且至少 32 个字符的值：
+
+```bash
+npx wrangler secret put TOTP_ENCRYPTION_KEY
+```
+
+不要把值作为命令参数、环境普通变量、日志或仓库文件提交。该 Secret 用于派生 AES-GCM 密钥并加密 D1 中的 TOTP secret，同时保护恢复码摘要；一旦启用 TOTP，丢失或直接轮换它会导致现有验证码和恢复码都无法验证。启用前必须在密码管理器或系统密钥链中保存独立回滚副本，轮换前先停用 TOTP，再配置新 Secret 并重新绑定。
+
 ## 真实测试节点
 
 | 项目 | 当前值 |
