@@ -192,6 +192,14 @@ test('admin can enroll TOTP, use one-time recovery codes, protect settings, and 
     assert.equal(protectedSettings.status, 428);
     assert.equal((await protectedSettings.json()).code, 'totp_required');
 
+    const protectedVisibility = await handleAdminAPI(
+      adminRequest({ action: 'save_settings', settings: { is_public: 'true' } }, totpToken),
+      env,
+      sys
+    );
+    assert.equal(protectedVisibility.status, 428);
+    assert.equal((await protectedVisibility.json()).code, 'totp_required');
+
     const verifiedSettings = await handleAdminAPI(
       adminRequest({
         action: 'save_settings',
@@ -287,57 +295,88 @@ test('admin can enroll TOTP, use one-time recovery codes, protect settings, and 
     );
 
     env.TOTP_ENCRYPTION_KEY = 'test-only-totp-encryption-key-with-32-chars';
-    const postDisableToken = (await handleAdminAPI(
-      adminRequest({ action: 'login', username, password }),
-      env,
-      sys
-    ).then(response => response.json())).token;
-    const secondSetupResponse = await handleAdminAPI(
-      adminRequest({ action: 'totp_setup' }, postDisableToken),
-      env,
-      sys
-    );
-    const secondSetup = await secondSetupResponse.json();
-    const secondConfirmResponse = await handleAdminAPI(
-      adminRequest({ action: 'totp_confirm', code: totpCode(secondSetup.secret) }, postDisableToken),
-      env,
-      sys
-    );
-    assert.equal(secondConfirmResponse.status, 200);
+    const originalDateNow = Date.now;
+    let currentTime = originalDateNow();
+    Date.now = () => currentTime;
+    try {
+      const postDisableToken = (await handleAdminAPI(
+        adminRequest({ action: 'login', username, password }),
+        env,
+        sys
+      ).then(response => response.json())).token;
+      const secondSetupResponse = await handleAdminAPI(
+        adminRequest({ action: 'totp_setup' }, postDisableToken),
+        env,
+        sys
+      );
+      const secondSetup = await secondSetupResponse.json();
 
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const invalidSettingsResponse = await handleAdminAPI(
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const invalidConfirmResponse = await handleAdminAPI(
+          adminRequest({ action: 'totp_confirm', code: '000000' }, postDisableToken),
+          env,
+          sys
+        );
+        assert.equal(invalidConfirmResponse.status, 400);
+      }
+      const rateLimitedConfirmResponse = await handleAdminAPI(
         adminRequest({
-          action: 'save_settings',
-          settings: { cloudflare_account_id: `blocked-${attempt}` },
-          totp_code: '000000'
+          action: 'totp_confirm',
+          code: totpCode(secondSetup.secret, currentTime)
         }, postDisableToken),
         env,
         sys
       );
-      assert.equal(invalidSettingsResponse.status, 428);
-    }
-    const invalidDisableResponse = await handleAdminAPI(
-      adminRequest({ action: 'totp_disable', code: '000000' }, postDisableToken),
-      env,
-      sys
-    );
-    assert.equal(invalidDisableResponse.status, 428);
+      assert.equal(rateLimitedConfirmResponse.status, 429);
+      assert.equal((await rateLimitedConfirmResponse.json()).code, 'second_factor_rate_limited');
 
-    const authenticatedRateLimitResponse = await handleAdminAPI(
-      adminRequest({
-        action: 'totp_disable',
-        code: totpCode(secondSetup.secret)
-      }, postDisableToken),
-      env,
-      sys
-    );
-    assert.equal(authenticatedRateLimitResponse.status, 429);
-    assert.equal(authenticatedRateLimitResponse.headers.get('Retry-After'), '300');
-    assert.equal(
-      (await authenticatedRateLimitResponse.json()).code,
-      'second_factor_rate_limited'
-    );
+      currentTime += (5 * 60 * 1000) + 1;
+      const secondConfirmResponse = await handleAdminAPI(
+        adminRequest({
+          action: 'totp_confirm',
+          code: totpCode(secondSetup.secret, currentTime)
+        }, postDisableToken),
+        env,
+        sys
+      );
+      assert.equal(secondConfirmResponse.status, 200);
+
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const invalidSettingsResponse = await handleAdminAPI(
+          adminRequest({
+            action: 'save_settings',
+            settings: { cloudflare_account_id: `blocked-${attempt}` },
+            totp_code: '000000'
+          }, postDisableToken),
+          env,
+          sys
+        );
+        assert.equal(invalidSettingsResponse.status, 428);
+      }
+      const invalidDisableResponse = await handleAdminAPI(
+        adminRequest({ action: 'totp_disable', code: '000000' }, postDisableToken),
+        env,
+        sys
+      );
+      assert.equal(invalidDisableResponse.status, 428);
+
+      const authenticatedRateLimitResponse = await handleAdminAPI(
+        adminRequest({
+          action: 'totp_disable',
+          code: totpCode(secondSetup.secret, currentTime)
+        }, postDisableToken),
+        env,
+        sys
+      );
+      assert.equal(authenticatedRateLimitResponse.status, 429);
+      assert.equal(authenticatedRateLimitResponse.headers.get('Retry-After'), '300');
+      assert.equal(
+        (await authenticatedRateLimitResponse.json()).code,
+        'second_factor_rate_limited'
+      );
+    } finally {
+      Date.now = originalDateNow;
+    }
   } finally {
     await miniflare.dispose();
   }

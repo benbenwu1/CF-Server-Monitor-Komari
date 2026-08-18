@@ -27,6 +27,7 @@ const ALWAYS_PROTECTED_SETTING_FIELDS = new Set([
 ]);
 
 const COMPARED_PROTECTED_SETTING_FIELDS = new Set([
+  'is_public',
   'username',
   'turnstile_enabled',
   'turnstile_login_enabled',
@@ -328,7 +329,12 @@ export async function beginAdminTotpSetup(db, encryptionSecret, label, now = Dat
   return { success: true, secret, otpauthUri };
 }
 
-export async function confirmAdminTotpSetup(db, encryptionSecret, code, now = Date.now()) {
+export async function confirmAdminTotpSetup(
+  db,
+  encryptionSecret,
+  code,
+  { now = Date.now(), rateLimitScope } = {}
+) {
   const pendingValue = await getSetting(db, SETTINGS.pending);
   if (!pendingValue) return { success: false, reason: 'totp_setup_not_found' };
   let pending;
@@ -345,9 +351,18 @@ export async function confirmAdminTotpSetup(db, encryptionSecret, code, now = Da
     return { success: false, reason: 'totp_setup_expired' };
   }
   const secret = await decryptSecret(pending.encrypted_secret, encryptionSecret);
+  const reservation = await reserveSecondFactorAttempt(db, rateLimitScope, now);
+  if (!reservation.allowed) {
+    return {
+      success: false,
+      reason: 'second_factor_rate_limited',
+      retryAfter: reservation.retryAfter
+    };
+  }
   if (!await verifyTotpCode(secret, code, now)) {
     return { success: false, reason: 'invalid_totp_code' };
   }
+  await releaseSecondFactorAttempt(db, reservation.scopeKey);
   const recovery = await generateRecoveryCodes(encryptionSecret);
   const conditionalUpsert = (key, value) => db.prepare(`
     INSERT INTO settings (key, value)

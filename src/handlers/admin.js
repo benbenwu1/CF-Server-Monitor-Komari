@@ -698,9 +698,23 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       const confirmation = await confirmAdminTotpSetup(
         env.DB,
         env.TOTP_ENCRYPTION_KEY,
-        data.code
+        data.code,
+        { rateLimitScope: getAuthenticatedSecondFactorRateLimitScope(env, sys) }
       );
-      if (!confirmation.success) return createBadRequestResponse(confirmation.reason);
+      if (!confirmation.success) {
+        if (confirmation.reason === 'second_factor_rate_limited') {
+          return createSecondFactorRateLimitResponse(confirmation.retryAfter);
+        }
+        if (confirmation.reason === 'invalid_totp_code') {
+          await recordAdminAuditEvent(env.DB, request, {
+            eventType: 'admin.totp.enable',
+            outcome: 'failure',
+            targetType: 'admin_security',
+            detail: { reason: confirmation.reason }
+          });
+        }
+        return createBadRequestResponse(confirmation.reason);
+      }
       await recordAdminAuditEvent(env.DB, request, {
         eventType: 'admin.totp.enable',
         targetType: 'admin_security'
