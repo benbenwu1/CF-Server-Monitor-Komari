@@ -119,6 +119,7 @@ export async function addServerColumns(db) {
     const { results: columns } = await db.prepare(`PRAGMA table_info(servers)`).all();
     const existingCols = columns.map(c => c.name);
     const shouldMigrateLegacyPrice = !existingCols.includes('billing_cycle');
+    const shouldMigrateLegacyNote = !existingCols.includes('internal_note');
     
     const newCols = {
       is_hidden: "TEXT DEFAULT '0'",
@@ -127,6 +128,8 @@ export async function addServerColumns(db) {
       region: "TEXT DEFAULT ''",
       tags: "TEXT DEFAULT ''",
       note: "TEXT DEFAULT ''",
+      internal_note: "TEXT DEFAULT ''",
+      public_note: "TEXT DEFAULT ''",
       billing_cycle: "TEXT DEFAULT 'month'",
       auto_renewal: "TEXT DEFAULT '0'",
       currency: "TEXT DEFAULT '¥'",
@@ -156,6 +159,16 @@ export async function addServerColumns(db) {
       }
     }
 
+    let migratedNotes = 0;
+    if (shouldMigrateLegacyNote && existingCols.includes('note')) {
+      const { meta } = await db.prepare(`
+        UPDATE servers
+        SET internal_note = note
+        WHERE note IS NOT NULL AND note != ''
+      `).run();
+      migratedNotes = meta.changes || 0;
+    }
+
     let migratedPrices = 0;
     if (shouldMigrateLegacyPrice) {
       const { results: servers = [] } = await db.prepare(
@@ -174,7 +187,7 @@ export async function addServerColumns(db) {
       }
     }
     
-    return { success: true, added, migratedPrices };
+    return { success: true, added, migratedPrices, migratedNotes };
   } catch (e) {
     debug('添加 servers 表列失败:', e);
     return { success: false, error: e.message };

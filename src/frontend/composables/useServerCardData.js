@@ -5,6 +5,9 @@ import { currentLang, useTranslation } from '../utils/i18n'
 import { PING } from '../utils/constants'
 import { normalizeTimestamp, formatDateTime } from '../utils/time.js'
 import { formatBillingPrice } from '../utils/server.js'
+import { getTrafficUsageBytes } from '../utils/traffic.js'
+
+export { getTrafficUsageBytes } from '../utils/traffic.js'
 
 export const DEFAULT_SERVER_CARD_CONFIG = {
   show_price: true,
@@ -12,16 +15,6 @@ export const DEFAULT_SERVER_CARD_CONFIG = {
   show_tf: true,
   show_time: true,
   display_mode: 'bar'
-}
-
-export const getTrafficUsageBytes = (server) => {
-  const rx = parseFloat(server.net_rx_monthly) || 0
-  const tx = parseFloat(server.net_tx_monthly) || 0
-  const calcType = server.traffic_calc_type || 'total'
-  if (calcType === 'dl') return rx
-  if (calcType === 'ul') return tx
-  if (calcType === 'max') return Math.max(rx, tx)
-  return rx + tx
 }
 
 export const calcTrafficUsagePercent = (server) => {

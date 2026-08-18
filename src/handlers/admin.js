@@ -7,6 +7,8 @@ import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
 import { addServerColumns } from '../database/updateDatabase.js';
 import { clearResourceAlertState, sendNotification } from '../services/notification.js';
+import { listAuditEvents, recordAuditEvent } from '../services/audit.js';
+import { listNotificationDeliveries } from '../services/notificationDelivery.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
@@ -16,6 +18,57 @@ const PING_NODE_FIELDS = ['custom_ct', 'custom_cu', 'custom_cm', 'custom_bd'];
 const THEME_PREVIEW_AUTH_COOKIE = 'cfsm_theme_preview_auth';
 const THEME_PREVIEW_AUTH_TTL = 600;
 const DURABLE_OBJECTS_WEBSOCKET_MESSAGE_BILLING_RATIO = 20;
+const LOGIN_FAILURE_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_FAILURE_AUDIT_WRITE_LIMIT = 20;
+
+async function tryRecordAuditEvent(db, event) {
+  try {
+    await recordAuditEvent(db, event);
+    return true;
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'audit.persist_failed',
+      event_type: String(event?.eventType || 'unknown').slice(0, 100),
+      error: error?.name || 'Error'
+    }));
+    return false;
+  }
+}
+
+async function recordLoginAuditEvent(db, request, eventType, outcome, detail) {
+  const occurredAt = Date.now();
+  const ipAddress = request.headers.get('CF-Connecting-IP') || null;
+  const dedupeKey = eventType === 'auth.login.failure' && ipAddress
+    ? `${eventType}:${ipAddress}:${Math.floor(occurredAt / LOGIN_FAILURE_DEDUPE_WINDOW_MS)}`
+    : null;
+
+  await tryRecordAuditEvent(db, {
+    eventType,
+    outcome,
+    actor: outcome === 'success' ? 'admin' : 'anonymous',
+    targetType: 'admin_session',
+    ipAddress,
+    userAgent: request.headers.get('User-Agent'),
+    detail,
+    dedupeKey,
+    maxCount: eventType === 'auth.login.failure' ? LOGIN_FAILURE_AUDIT_WRITE_LIMIT : undefined,
+    occurredAt
+  });
+}
+
+async function recordAdminAuditEvent(db, request, event) {
+  await tryRecordAuditEvent(db, {
+    eventType: event.eventType,
+    outcome: event.outcome || 'success',
+    actor: 'admin',
+    targetType: event.targetType,
+    targetId: event.targetId,
+    ipAddress: request.headers.get('CF-Connecting-IP'),
+    userAgent: request.headers.get('User-Agent'),
+    detail: event.detail || {},
+    occurredAt: Date.now()
+  });
+}
 
 function toUsageNumber(value) {
   const number = Number(value);
@@ -481,6 +534,13 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       const credentialResult = await validateCredentials(mockRequest, env, sys);
       
       if (!credentialResult.valid) {
+        await recordLoginAuditEvent(
+          env.DB,
+          request,
+          'auth.login.failure',
+          'failure',
+          { reason: 'invalid_credentials' }
+        );
         return createUnauthorizedResponse('invalidCredentials');
       }
 
@@ -498,6 +558,13 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
 
       try {
         const token = await generateToken(env, sys);
+        await recordLoginAuditEvent(
+          env.DB,
+          request,
+          'auth.login.success',
+          'success',
+          { method: 'password' }
+        );
         return createSuccessResponse({
           success: true,
           token: token,
@@ -522,11 +589,39 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
 
     if (data.action === 'get_settings') {
       const fullSettings = loadFullSettings ? await loadFullSettings() : sys;
-      const { jwt_secret, ...safeSettings } = fullSettings || {};
+      const {
+        jwt_secret,
+        password,
+        tg_bot_token,
+        tg_chat_id,
+        ...safeSettings
+      } = fullSettings || {};
       return createSuccessResponse({
         success: true,
-        settings: safeSettings,
+        settings: {
+          ...safeSettings,
+          has_notification_credential: !!String(tg_bot_token || '').trim(),
+          has_notification_target: !!String(tg_chat_id || '').trim()
+        },
         api_secret: env.API_SECRET
+      });
+    }
+    else if (data.action === 'audit_list') {
+      const auditPage = await listAuditEvents(env.DB, {
+        eventType: data.event_type,
+        page: data.page,
+        pageSize: data.page_size
+      });
+      return createSuccessResponse({
+        success: true,
+        ...auditPage
+      });
+    }
+    else if (data.action === 'notification_delivery_list') {
+      const deliveries = await listNotificationDeliveries(env.DB);
+      return createSuccessResponse({
+        success: true,
+        deliveries
       });
     }
     else if (data.action === 'start_theme_preview') {
@@ -631,24 +726,70 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       }
     }
     else if (data.action === 'send_test_notification') {
-      const { tg_bot_token, tg_chat_id } = data;
-      if (!tg_bot_token || tg_bot_token.trim().length === 0) {
+      const { notification_provider, tg_bot_token, tg_chat_id } = data;
+      const effectiveNotificationProvider = notification_provider || sys?.notification_provider || 'auto';
+      const effectiveNotificationCredential = String(tg_bot_token || sys?.tg_bot_token || '').trim();
+      const effectiveNotificationTarget = String(tg_chat_id || sys?.tg_chat_id || '').trim();
+      if (!effectiveNotificationCredential) {
         return createBadRequestResponse('tgBotTokenRequired');
       }
       try {
         const testMsg = `✅ **测试通知**\n\n这是一条来自 CF Server Monitor 的测试消息。\n\n**时间:** ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
-        const result = await sendNotification({ tg_bot_token, tg_chat_id: tg_chat_id || '' }, testMsg);
-        if(result) {
-          console.warn('Test notification failed:', result);
-          return createBadRequestResponse('testNotificationFailed');
+        const delivery = await sendNotification({
+          notification_provider: effectiveNotificationProvider,
+          tg_bot_token: effectiveNotificationCredential,
+          tg_chat_id: effectiveNotificationTarget
+        }, testMsg, {
+          db: env.DB,
+          source: 'test'
+        });
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.notification.test',
+          outcome: delivery.success ? 'success' : 'failure',
+          targetType: 'notification_provider',
+          targetId: delivery.provider,
+          detail: {
+            provider: delivery.provider,
+            ...(delivery.error ? { error: delivery.error } : {})
+          }
+        });
+        if (!delivery.success) {
+          console.warn(JSON.stringify({
+            event: 'notification.test.failed',
+            provider: delivery.provider,
+            attempts: delivery.attempts,
+            error: delivery.error
+          }));
+          return new Response(JSON.stringify({
+            error: 'testNotificationFailed',
+            code: 400,
+            delivery
+          }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          });
         }
-        return createSuccessResponse({ success: true, message: 'testNotificationSent' });
+        return createSuccessResponse({
+          success: true,
+          message: 'testNotificationSent',
+          delivery
+        });
       } catch (e) {
         return createBadRequestResponse('testNotificationFailed');
       }
     }
     else if (data.action === 'save_settings') {
       const settings = data.settings || {};
+      const currentNotificationProvider = String(sys?.notification_provider || 'auto').trim().toLowerCase();
+      const requestedNotificationProvider = String(
+        settings.notification_provider ?? currentNotificationProvider
+      ).trim().toLowerCase() || 'auto';
+      const notificationProviderChanged = settings.notification_provider !== undefined &&
+        requestedNotificationProvider !== currentNotificationProvider;
+      if (notificationProviderChanged && !String(settings.tg_bot_token || '').trim()) {
+        return createBadRequestResponse('tgBotTokenRequired');
+      }
+
       const normalizedThemeUrl = normalizeThemeUrl(settings.theme_url);
       if (normalizedThemeUrl === null) {
         return createBadRequestResponse('invalidThemeUrl');
@@ -769,6 +910,16 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       if (shouldCloseAgentWssReports) {
         scheduleAgentReportModeChanged(env, ctx);
       }
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.settings.update',
+        targetType: 'settings',
+        detail: {
+          changed_fields: [...new Set([
+            ...Object.keys(siteOptions),
+            ...Object.keys(appearanceOptions)
+          ])].sort()
+        }
+      });
       return createSuccessResponse({
         success: true,
         message: 'updateSuccess'
@@ -804,6 +955,12 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       }
       
       clearServersListCache();
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.server.create',
+        targetType: 'server',
+        targetId: id,
+        detail: {}
+      });
       
       return createSuccessResponse({ 
         success: true, 
@@ -820,6 +977,12 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       await deleteServer(env.DB, id);
       
       clearServersListCache();
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.server.delete',
+        targetType: 'server',
+        targetId: id,
+        detail: {}
+      });
       
       return createSuccessResponse({ 
         success: true, 
@@ -840,6 +1003,11 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       }
       
       clearServersListCache();
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.server.reorder',
+        targetType: 'server_collection',
+        detail: { count: orders.length }
+      });
       
       return createSuccessResponse({ 
         success: true, 
@@ -847,7 +1015,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, region, tags, note, price, billing_cycle, auto_renewal, currency, expire_date, traffic_limit, traffic_calc_type, interface: networkInterfaceInput, reset_day, collect_interval, report_interval, connection_mode, auto_update, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction, offline_notify_disabled, is_hidden } = data;
+      const { id, name, server_group, region, tags, note, internal_note, public_note, price, billing_cycle, auto_renewal, currency, expire_date, traffic_limit, traffic_calc_type, interface: networkInterfaceInput, reset_day, collect_interval, report_interval, connection_mode, auto_update, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction, offline_notify_disabled, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return createBadRequestResponse('invalidServerId');
       }
@@ -877,7 +1045,10 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         .filter(Boolean)
         .slice(0, 12)
         .join(',');
-      const safeNote = String(note || '').trim().slice(0, 500);
+      const safeInternalNote = String(internal_note !== undefined ? internal_note : (note || ''))
+        .trim()
+        .slice(0, 500);
+      const safePublicNote = String(public_note || '').trim().slice(0, 500);
 
       const toNullCorrection = (v) => {
         if (v === null || v === undefined || v === '') return null;
@@ -900,14 +1071,16 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       try {
         await env.DB.prepare(`
           UPDATE servers
-          SET name = ?, server_group = ?, region = ?, tags = ?, note = ?, price = ?, billing_cycle = ?, auto_renewal = ?, currency = ?, expire_date = ?, traffic_limit = ?, traffic_calc_type = ?, "interface" = ?, reset_day = ?, collect_interval = ?, report_interval = ?, connection_mode = ?, auto_update = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
+          SET name = ?, server_group = ?, region = ?, tags = ?, note = ?, internal_note = ?, public_note = ?, price = ?, billing_cycle = ?, auto_renewal = ?, currency = ?, expire_date = ?, traffic_limit = ?, traffic_calc_type = ?, "interface" = ?, reset_day = ?, collect_interval = ?, report_interval = ?, connection_mode = ?, auto_update = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
           WHERE id = ?
         `).bind(
           name || '',
           server_group || 'Default',
           normalizeServerRegion(region),
           safeTags,
-          safeNote,
+          safeInternalNote,
+          safeInternalNote,
+          safePublicNote,
           billingData.price,
           billingData.billing_cycle,
           billingData.auto_renewal,
@@ -937,6 +1110,12 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       
       clearServersListCache();
       scheduleAgentConfigChanged(env, ctx, id);
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.server.update',
+        targetType: 'server',
+        targetId: id,
+        detail: {}
+      });
       
       return createSuccessResponse({ 
         success: true, 
@@ -960,6 +1139,11 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       }
       
       clearServersListCache();
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.server.batch_delete',
+        targetType: 'server_collection',
+        detail: { count: ids.length }
+      });
       
       return createSuccessResponse({ 
         success: true, 
@@ -1039,19 +1223,21 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
 
         try {
           await env.DB.prepare(`
-            INSERT INTO servers (id, name, server_group, region, tags, note, price, billing_cycle, auto_renewal,
+            INSERT INTO servers (id, name, server_group, region, tags, note, internal_note, public_note, price, billing_cycle, auto_renewal,
               currency, expire_date,
               traffic_limit, traffic_calc_type, "interface", reset_day, collect_interval, report_interval, connection_mode,
               auto_update, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction,
               offline_notify_disabled, is_hidden, sort_order, history_partition_id, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             server.id,
             server.name || '',
             server.server_group || 'Default',
             normalizeServerRegion(server.region),
             server.tags || '',
-            server.note || '',
+            server.internal_note ?? server.note ?? '',
+            server.internal_note ?? server.note ?? '',
+            server.public_note || '',
             billingData.price,
             billingData.billing_cycle,
             billingData.auto_renewal,
@@ -1085,6 +1271,11 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       }
 
       clearServersListCache();
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.server.import',
+        targetType: 'server_collection',
+        detail: { imported, skipped }
+      });
 
       return createSuccessResponse({
         success: true,

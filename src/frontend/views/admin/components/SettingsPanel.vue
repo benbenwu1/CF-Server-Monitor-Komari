@@ -71,7 +71,6 @@
             </textarea>
           </div>
         </div>
-
         <div class="form-row">
           <div class="form-group flex-1">
             <label class="form-label">{{ trans.cspStatic }}</label>
@@ -163,32 +162,56 @@
             </select>
           </div>
 
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.notificationProvider }}</label>
+            <select v-model="settings.notification_provider" class="form-select">
+              <option v-for="option in notificationProviderOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </div>
+
         </div>
 
         <div class="form-row">
           <div class="form-group flex-1">
             <label class="form-label">{{ trans.telegramToken }}</label>
             <div class="password-input-wrapper">
-              <input type="text" name="tg_bot_token" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" v-model="settings.tg_bot_token" :class="['form-input', { 'secret-input-masked': !passwordVisible.tgBotToken }]" placeholder="Bot Token or Webhook URL">
+              <input type="text" name="tg_bot_token" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" v-model="settings.tg_bot_token" :class="['form-input', { 'secret-input-masked': !passwordVisible.tgBotToken }]" :placeholder="settings.has_notification_credential ? trans.notificationCredentialSaved : trans.notificationCredentialPlaceholder">
               <button type="button" class="password-toggle" @click="$emit('toggle-password', 'tgBotToken')">
                 {{ passwordVisible.tgBotToken ? '🙈' : '👁️' }}
               </button>
             </div>
+            <p v-if="settings.has_notification_credential" class="text-muted text-sm mt-1">{{ trans.notificationCredentialKeepHint }}</p>
           </div>
 
           <div class="form-group flex-1">
             <label class="form-label">{{ trans.chatId }}</label>
             <div class="password-input-wrapper">
-              <input type="text" name="tg_chat_id" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" v-model="settings.tg_chat_id" :class="['form-input', { 'secret-input-masked': !passwordVisible.tgChatId }]" placeholder="Optional Chat ID">
+              <input type="text" name="tg_chat_id" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" v-model="settings.tg_chat_id" :class="['form-input', { 'secret-input-masked': !passwordVisible.tgChatId }]" :placeholder="settings.has_notification_target ? trans.notificationTargetSaved : trans.notificationTargetPlaceholder">
               <button type="button" class="password-toggle" @click="$emit('toggle-password', 'tgChatId')">
                 {{ passwordVisible.tgChatId ? '🙈' : '👁️' }}
               </button>
             </div>
+            <p v-if="settings.has_notification_target" class="text-muted text-sm mt-1">{{ trans.notificationCredentialKeepHint }}</p>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group flex-1">
             <button type="button" @click="$emit('send-test-notification')" class="btn btn-primary" :disabled="testNotificationLoading">{{ testNotificationLoading ? '⏳' : '📨' }} {{ trans.sendTestNotification }}</button>
+          </div>
+        </div>
+        <div v-if="notificationDeliveries.length" class="notification-delivery-list">
+          <div class="section-subtitle">{{ trans.recentNotificationDeliveries }}</div>
+          <div
+            v-for="delivery in notificationDeliveries.slice(0, 5)"
+            :key="delivery.id"
+            class="notification-delivery-item"
+            :class="{ failed: delivery.status === 'failed' }"
+          >
+            <span>{{ delivery.provider }} / {{ delivery.source }}</span>
+            <span>{{ delivery.status === 'delivered' ? trans.deliverySucceeded : trans.deliveryFailed }}</span>
+            <span>{{ trans.deliveryAttempts }}: {{ delivery.attempts }}</span>
+            <span v-if="delivery.status_code">HTTP {{ delivery.status_code }}</span>
+            <span v-if="delivery.error">{{ delivery.error }}</span>
           </div>
         </div>
 
@@ -507,6 +530,7 @@ const props = defineProps({
   saving: { type: Boolean, default: false },
   changeAdminPassword: { type: Boolean, default: false },
   testNotificationLoading: { type: Boolean, default: false },
+  notificationDeliveries: { type: Array, default: () => [] },
   d1UsageLoading: { type: Boolean, default: false }
 })
 
@@ -520,6 +544,19 @@ const cspErrors = reactive({
   csp_static: '',
   csp_api: ''
 })
+
+const notificationProviderOptions = computed(() => [
+  { value: 'auto', label: props.trans.notificationProviderAuto },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'onebot', label: 'OneBot' },
+  { value: 'feishu', label: '飞书' },
+  { value: 'dingtalk', label: '钉钉' },
+  { value: 'bark', label: 'Bark' },
+  { value: 'wecom', label: '企业微信' },
+  { value: 'serverchan', label: 'Server酱' },
+  { value: 'wxpusher', label: 'WxPusher' },
+  { value: 'gotify', label: 'Gotify' }
+])
 
 const offlineNotifyOptions = computed(() => [
   { value: '0', label: `${props.trans.disabled}` },

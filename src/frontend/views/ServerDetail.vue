@@ -47,6 +47,9 @@
           <span>{{ isOnline ? trans.online : trans.offline }}</span>
         </span>
       </div>
+      <div v-if="server.public_note" class="server-public-note server-detail-public-note">
+        {{ server.public_note }}
+      </div>
       <div class="sysinfo-grid" id="info-panel">
         <div class="sysinfo-item">
           <span class="sysinfo-label">⏱ {{ trans.uptime }}</span>

@@ -139,6 +139,7 @@
           :saving="saving"
           :change-admin-password="changeAdminPassword"
           :test-notification-loading="testNotificationLoading"
+          :notification-deliveries="notificationDeliveries"
           :d1-usage-loading="d1UsageLoading"
           @toggle-password="togglePassword"
           @toggle-admin-password-change="toggleAdminPasswordChange"
@@ -311,41 +312,50 @@
           <div v-if="d1UsageResult.success" class="mb-4">
             <div class="warning-box mb-4">
               {{ getMessage(d1UsageResult.message) || trans.d1UsageQueried }}
+              <div class="text-sm mt-1">
+                {{ trans.cloudflareQuotaScope }} {{ trans.cloudflareQuotaVerified }}: {{ cloudflareFreeQuotas.verified_on }}
+                ·
+                <a :href="cloudflareFreeQuotas.d1_rows_read.source" target="_blank" rel="noopener noreferrer">D1</a>
+                ·
+                <a :href="cloudflareFreeQuotas.workers_requests.source" target="_blank" rel="noopener noreferrer">Workers</a>
+                ·
+                <a :href="cloudflareFreeQuotas.durable_objects_requests.source" target="_blank" rel="noopener noreferrer">Durable Objects</a>
+              </div>
             </div>
             <div class="quota-section">
               <div class="quota-section-title">{{ trans.todayUsage }}</div>
               <div class="quota-progress-list">
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
-                    <span>{{ trans.d1RowsRead }}：{{ formatNumber(d1UsageResult.usage.today.rowsRead) }} / {{ formatNumber(5000000) }}</span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.today.rowsRead, 5000000) }}%</span>
+                    <span>{{ trans.d1RowsRead }}：{{ formatNumber(d1UsageResult.usage.today.rowsRead) }} / {{ formatNumber(quotaLimits.d1RowsRead) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.today.rowsRead, quotaLimits.d1RowsRead) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.rowsRead, 5000000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.rowsRead, quotaLimits.d1RowsRead) + '%' }"></div>
                   </div>
                 </div>
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
-                    <span>{{ trans.d1RowsWritten }}：{{ formatNumber(d1UsageResult.usage.today.rowsWritten) }} / {{ formatNumber(100000) }}</span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.today.rowsWritten, 100000) }}%</span>
+                    <span>{{ trans.d1RowsWritten }}：{{ formatNumber(d1UsageResult.usage.today.rowsWritten) }} / {{ formatNumber(quotaLimits.d1RowsWritten) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.today.rowsWritten, quotaLimits.d1RowsWritten) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.rowsWritten, 100000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.rowsWritten, quotaLimits.d1RowsWritten) + '%' }"></div>
                   </div>
                 </div>
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
-                    <span>{{ trans.workersRequests }}：{{ formatNumber(d1UsageResult.usage.today.workersRequests) }} / {{ formatNumber(100000) }}</span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.today.workersRequests, 100000) }}%</span>
+                    <span>{{ trans.workersRequests }}：{{ formatNumber(d1UsageResult.usage.today.workersRequests) }} / {{ formatNumber(quotaLimits.workersRequests) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.today.workersRequests, quotaLimits.workersRequests) }}%</span>
                   </div>
                   <div v-if="d1UsageResult.usage.today.workersRequests" class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.workersRequests, 100000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.workersRequests, quotaLimits.workersRequests) + '%' }"></div>
                   </div>
                 </div>
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
                     <span class="quota-label-with-help">
-                      <span>{{ trans.durableObjectsRequests }}：{{ formatNumber(d1UsageResult.usage.today.durableObjectsRequests) }} / {{ formatNumber(100000) }}</span>
+                      <span>{{ trans.durableObjectsRequests }}：{{ formatNumber(d1UsageResult.usage.today.durableObjectsRequests) }} / {{ formatNumber(quotaLimits.durableObjectsRequests) }}</span>
                       <span class="quota-help" tabindex="0" :aria-label="formatDurableObjectsUsageTooltip(d1UsageResult.usage.today)">
                         <span class="quota-help-dot" aria-hidden="true">?</span>
                         <span class="quota-help-tooltip" role="tooltip">
@@ -356,16 +366,16 @@
                         </span>
                       </span>
                     </span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.today.durableObjectsRequests, 100000) }}%</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.today.durableObjectsRequests, quotaLimits.durableObjectsRequests) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.durableObjectsRequests, 100000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.durableObjectsRequests, quotaLimits.durableObjectsRequests) + '%' }"></div>
                   </div>
                 </div>
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
                     <span class="quota-label-with-help">
-                      <span>{{ trans.durableObjectsDuration }}：{{ formatNumber(d1UsageResult.usage.today.durableObjectsDuration, 2) }} / {{ formatNumber(13000) }}</span>
+                      <span>{{ trans.durableObjectsDuration }}：{{ formatNumber(d1UsageResult.usage.today.durableObjectsDuration, 2) }} / {{ formatNumber(quotaLimits.durableObjectsDuration) }}</span>
                       <span class="quota-help" tabindex="0" :aria-label="trans.durableObjectsDurationTip">
                         <span class="quota-help-dot" aria-hidden="true">?</span>
                         <span class="quota-help-tooltip" role="tooltip">
@@ -373,10 +383,10 @@
                         </span>
                       </span>
                     </span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.today.durableObjectsDuration, 13000) }}%</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.today.durableObjectsDuration, quotaLimits.durableObjectsDuration) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.durableObjectsDuration, 13000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.today.durableObjectsDuration, quotaLimits.durableObjectsDuration) + '%' }"></div>
                   </div>
                 </div>
               </div>
@@ -387,35 +397,35 @@
               <div class="quota-progress-list">
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
-                    <span>{{ trans.d1RowsRead }}：{{ formatNumber(d1UsageResult.usage.yesterday.rowsRead) }} / {{ formatNumber(5000000) }}</span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.rowsRead, 5000000) }}%</span>
+                    <span>{{ trans.d1RowsRead }}：{{ formatNumber(d1UsageResult.usage.yesterday.rowsRead) }} / {{ formatNumber(quotaLimits.d1RowsRead) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.rowsRead, quotaLimits.d1RowsRead) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.rowsRead, 5000000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.rowsRead, quotaLimits.d1RowsRead) + '%' }"></div>
                   </div>
                 </div>
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
-                    <span>{{ trans.d1RowsWritten }}：{{ formatNumber(d1UsageResult.usage.yesterday.rowsWritten) }} / {{ formatNumber(100000) }}</span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.rowsWritten, 100000) }}%</span>
+                    <span>{{ trans.d1RowsWritten }}：{{ formatNumber(d1UsageResult.usage.yesterday.rowsWritten) }} / {{ formatNumber(quotaLimits.d1RowsWritten) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.rowsWritten, quotaLimits.d1RowsWritten) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.rowsWritten, 100000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.rowsWritten, quotaLimits.d1RowsWritten) + '%' }"></div>
                   </div>
                 </div>
                 <div v-if="d1UsageResult.usage.yesterday.workersRequests" class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
-                    <span>{{ trans.workersRequests }}：{{ formatNumber(d1UsageResult.usage.yesterday.workersRequests) }} / {{ formatNumber(100000) }}</span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.workersRequests, 100000) }}%</span>
+                    <span>{{ trans.workersRequests }}：{{ formatNumber(d1UsageResult.usage.yesterday.workersRequests) }} / {{ formatNumber(quotaLimits.workersRequests) }}</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.workersRequests, quotaLimits.workersRequests) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.workersRequests, 100000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.workersRequests, quotaLimits.workersRequests) + '%' }"></div>
                   </div>
                 </div>
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
                     <span class="quota-label-with-help">
-                      <span>{{ trans.durableObjectsRequests }}：{{ formatNumber(d1UsageResult.usage.yesterday.durableObjectsRequests) }} / {{ formatNumber(100000) }}</span>
+                      <span>{{ trans.durableObjectsRequests }}：{{ formatNumber(d1UsageResult.usage.yesterday.durableObjectsRequests) }} / {{ formatNumber(quotaLimits.durableObjectsRequests) }}</span>
                       <span class="quota-help" tabindex="0" :aria-label="formatDurableObjectsUsageTooltip(d1UsageResult.usage.yesterday)">
                         <span class="quota-help-dot" aria-hidden="true">?</span>
                         <span class="quota-help-tooltip" role="tooltip">
@@ -426,16 +436,16 @@
                         </span>
                       </span>
                     </span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsRequests, 100000) }}%</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsRequests, quotaLimits.durableObjectsRequests) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.durableObjectsRequests, 100000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.durableObjectsRequests, quotaLimits.durableObjectsRequests) + '%' }"></div>
                   </div>
                 </div>
                 <div class="quota-progress-item">
                   <div class="flex-justify-between text-sm mb-1">
                     <span class="quota-label-with-help">
-                      <span>{{ trans.durableObjectsDuration }}：{{ formatNumber(d1UsageResult.usage.yesterday.durableObjectsDuration, 2) }} / {{ formatNumber(13000) }}</span>
+                      <span>{{ trans.durableObjectsDuration }}：{{ formatNumber(d1UsageResult.usage.yesterday.durableObjectsDuration, 2) }} / {{ formatNumber(quotaLimits.durableObjectsDuration) }}</span>
                       <span class="quota-help" tabindex="0" :aria-label="trans.durableObjectsDurationTip">
                         <span class="quota-help-dot" aria-hidden="true">?</span>
                         <span class="quota-help-tooltip" role="tooltip">
@@ -443,10 +453,10 @@
                         </span>
                       </span>
                     </span>
-                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsDuration, 13000) }}%</span>
+                    <span>{{ getUsagePercent(d1UsageResult.usage.yesterday.durableObjectsDuration, quotaLimits.durableObjectsDuration) }}%</span>
                   </div>
                   <div class="quota-progress-bar">
-                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.durableObjectsDuration, 13000) + '%' }"></div>
+                    <div class="quota-progress-fill" :style="{ width: getUsageBarPercent(d1UsageResult.usage.yesterday.durableObjectsDuration, quotaLimits.durableObjectsDuration) + '%' }"></div>
                   </div>
                 </div>
               </div>
@@ -559,8 +569,17 @@ import { HISTORY } from '../../utils/constants.js'
 import { usePasswordVisibility } from '../../composables/usePasswordVisibility'
 import { useTurnstile } from './composables/useTurnstile'
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
+import { getCloudflareFreeDailyQuotas } from '../../utils/cloudflareQuotas.js'
 
 const trans = useTranslation()
+const cloudflareFreeQuotas = getCloudflareFreeDailyQuotas()
+const quotaLimits = Object.freeze({
+  d1RowsRead: cloudflareFreeQuotas.d1_rows_read.limit,
+  d1RowsWritten: cloudflareFreeQuotas.d1_rows_written.limit,
+  workersRequests: cloudflareFreeQuotas.workers_requests.limit,
+  durableObjectsRequests: cloudflareFreeQuotas.durable_objects_requests.limit,
+  durableObjectsDuration: cloudflareFreeQuotas.durable_objects_duration.limit
+})
 const route = useRoute()
 const router = useRouter()
 const AGENT_RELEASE_URL = 'https://api.github.com/repos/huilang-me/cfsm-agent/releases/latest'
@@ -832,6 +851,9 @@ const settings = ref({
   tg_notify: '0',
   expire_reminder: '0',
   resource_alert_rules: [],
+  notification_provider: 'auto',
+  has_notification_credential: false,
+  has_notification_target: false,
   tg_bot_token: '',
   tg_chat_id: '',
   turnstile_enabled: false,
@@ -890,7 +912,8 @@ const editForm = ref({
   server_group: '',
   region: '',
   tags: '',
-  note: '',
+  internal_note: '',
+  public_note: '',
   price: '',
   billing_cycle: 'month',
   auto_renewal: false,
@@ -939,6 +962,8 @@ const showAutoUpdateWarning = ref(false)
 const autoUpdatePendingEnable = ref(false)
 
 const testNotificationLoading = ref(false)
+const notificationDeliveries = ref([])
+const savedNotificationProvider = ref('auto')
 
 const saveResult = ref(null)
 
@@ -1077,7 +1102,8 @@ const handleLogin = async () => {
     await Promise.all([
       loadSettings(),
       loadServers(),
-      loadLatestAgentVersion()
+      loadLatestAgentVersion(),
+      loadNotificationDeliveries()
     ])
   } else {
     loginError.value = result.status === 403 ? 'Please complete the verification' : trans.value.errorInvalidUsername
@@ -1118,7 +1144,8 @@ const initAdmin = async () => {
     await Promise.all([
       loadSettings(),
       loadServers(),
-      loadLatestAgentVersion()
+      loadLatestAgentVersion(),
+      loadNotificationDeliveries()
     ])
   } else {
     await loadTurnstileConfig()
@@ -1203,8 +1230,11 @@ const loadSettings = async () => {
         tg_notify: normalizeTgNotifySetting(settingsData.tg_notify),
         expire_reminder: normalizeExpireReminderSetting(settingsData.expire_reminder),
         resource_alert_rules: normalizeResourceAlertRulesSetting(settingsData.resource_alert_rules),
-        tg_bot_token: settingsData.tg_bot_token || '',
-        tg_chat_id: settingsData.tg_chat_id || '',
+        notification_provider: settingsData.notification_provider || 'auto',
+        has_notification_credential: settingsData.has_notification_credential === true,
+        has_notification_target: settingsData.has_notification_target === true,
+        tg_bot_token: '',
+        tg_chat_id: '',
         turnstile_enabled: settingsData.turnstile_enabled === 'true',
         turnstile_login_enabled: settingsData.turnstile_login_enabled === 'true',
         turnstile_site_key: settingsData.turnstile_site_key || '',
@@ -1223,6 +1253,7 @@ const loadSettings = async () => {
         csp_static: settingsData.csp_static || '',
         csp_api: settingsData.csp_api || ''
       }
+      savedNotificationProvider.value = settings.value.notification_provider
       applyMikusThemeOptions(settingsData.theme_options)
       changeAdminPassword.value = !String(settings.value.username || '').trim()
       apiSecret.value = data.api_secret || ''
@@ -1290,8 +1321,19 @@ const saveSettings = async () => {
     }
   }
 
+  if (
+    settings.value.notification_provider !== savedNotificationProvider.value &&
+    !String(settings.value.tg_bot_token || '').trim()
+  ) {
+    validationError.value = trans.value.tgBotTokenRequired
+    return
+  }
+
   if (isTgNotifyEnabled(settings.value.tg_notify) || isExpireReminderEnabled(settings.value.expire_reminder) || isResourceAlertEnabled(settings.value.resource_alert_rules)) {
-    if (!settings.value.tg_bot_token || settings.value.tg_bot_token.trim().length === 0) {
+    if (
+      (!settings.value.tg_bot_token || settings.value.tg_bot_token.trim().length === 0) &&
+      !settings.value.has_notification_credential
+    ) {
       validationError.value = trans.value.tgBotTokenRequired
       return
     }
@@ -1342,8 +1384,7 @@ const saveSettings = async () => {
       tg_notify: normalizeTgNotifySetting(settings.value.tg_notify),
       expire_reminder: normalizeExpireReminderSetting(settings.value.expire_reminder),
       resource_alert_rules: normalizeResourceAlertRulesSetting(settings.value.resource_alert_rules),
-      tg_bot_token: settings.value.tg_bot_token,
-      tg_chat_id: settings.value.tg_chat_id,
+      notification_provider: settings.value.notification_provider || 'auto',
       turnstile_enabled: settings.value.turnstile_enabled ? 'true' : 'false',
       turnstile_login_enabled: settings.value.turnstile_login_enabled ? 'true' : 'false',
       turnstile_site_key: settings.value.turnstile_site_key,
@@ -1364,6 +1405,14 @@ const saveSettings = async () => {
     data.settings.password = settings.value.password
   }
 
+  if (settings.value.tg_bot_token.trim()) {
+    data.settings.tg_bot_token = settings.value.tg_bot_token.trim()
+  }
+
+  if (settings.value.tg_chat_id.trim()) {
+    data.settings.tg_chat_id = settings.value.tg_chat_id.trim()
+  }
+
   if (jwtSecret && jwtSecret.length > 0) {
     data.settings.jwt_secret = jwtSecret
   }
@@ -1376,7 +1425,7 @@ const saveSettings = async () => {
       clearAdminPasswordInputs()
       changeAdminPassword.value = false
       settings.value.jwt_secret = ''
-      loadSettings()
+      await loadSettings()
     } else {
       saveResult.value = { success: false, error: getMessage(result.error) || 'fail' }
     }
@@ -1595,7 +1644,8 @@ const openEditModal = (server) => {
     server_group: server.server_group || '',
     region: server.region_override ?? (server.region || ''),
     tags: server.tags || '',
-    note: server.note || '',
+    internal_note: server.internal_note ?? server.note ?? '',
+    public_note: server.public_note || '',
     price: normalizePrice(server.price),
     billing_cycle: normalizeBillingCycle(detectBillingCycle(server.price) || server.billing_cycle),
     auto_renewal: server.auto_renewal === '1' || server.auto_renewal === 1 || server.auto_renewal === true,
@@ -1681,7 +1731,8 @@ const saveEdit = async () => {
     server_group: editForm.value.server_group,
     region: editForm.value.region,
     tags: editForm.value.tags,
-    note: editForm.value.note,
+    internal_note: editForm.value.internal_note,
+    public_note: editForm.value.public_note,
     price: normalizedPrice,
     billing_cycle: normalizedBillingCycle,
     auto_renewal: normalizedAutoRenewal,
@@ -1925,6 +1976,7 @@ const sendTestNotification = async () => {
   try {
     const result = await adminApiForSite({
       action: 'send_test_notification',
+      notification_provider: settings.value.notification_provider || 'auto',
       tg_bot_token: settings.value.tg_bot_token,
       tg_chat_id: settings.value.tg_chat_id
     })
@@ -1933,10 +1985,20 @@ const sendTestNotification = async () => {
     } else {
       alertMessage.value = getMessage(result.error) || trans.value.testNotificationFailed
     }
+    await loadNotificationDeliveries()
   } catch (e) {
     alertMessage.value = trans.value.testNotificationFailed + ': ' + e.message
   } finally {
     testNotificationLoading.value = false
+  }
+}
+
+const loadNotificationDeliveries = async () => {
+  try {
+    const result = await adminApiForSite({ action: 'notification_delivery_list' })
+    notificationDeliveries.value = result.error ? [] : (result.data?.deliveries || [])
+  } catch (_) {
+    notificationDeliveries.value = []
   }
 }
 

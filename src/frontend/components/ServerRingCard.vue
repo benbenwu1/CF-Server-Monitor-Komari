@@ -34,6 +34,8 @@
       </div>
     </div>
 
+    <div v-if="server.public_note" class="server-public-note">{{ server.public_note }}</div>
+
     <div class="server-card-ring-divider"></div>
 
     <div class="server-card-ring-metrics">

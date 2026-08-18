@@ -31,6 +31,7 @@
         </template>
       </div>
     </div>
+    <div v-if="server.public_note" class="server-public-note">{{ server.public_note }}</div>
     <div class="server-stats">
       <div class="stat-row">
         <span class="stat-key">CPU</span>

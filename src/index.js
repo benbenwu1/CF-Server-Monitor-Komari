@@ -1,5 +1,7 @@
 import { initDatabase, weeklyCleanup, getMetricsHistory, clearHistory } from './database/schema.js';
 import { checkOfflineNodes, checkExpiringServers, checkResourceAlerts } from './services/notification.js';
+import { cleanupAuditEvents } from './services/audit.js';
+import { cleanupNotificationDeliveries } from './services/notificationDelivery.js';
 import { updateDatabase } from './database/updateDatabase.js';
 import { handleAdminAPI } from './handlers/admin.js';
 import { serveFrontend } from './handlers/frontend.js';
@@ -343,6 +345,7 @@ export default {
         return fetchHistoryData(env, request, id, hours, allColumns, sys);
       }},
       { method: 'POST', path: '/admin/api', handler: async () => {
+        await initDatabase(env.DB);
         await ensureSiteSettings();
         return handleAdminAPI(request, env, sys, ensureFullSettings, ctx);
       }},
@@ -400,6 +403,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    await initDatabase(env.DB);
     const cron = event.cron;
     debug(`[Cron] 定时任务触发: ${cron}`);
 
@@ -420,6 +424,14 @@ export default {
         debug('[Cron] 资源负载告警检测完成');
       }
     } else if (cron === '0 * * * *') {
+      if (hour === 0) {
+        const [auditDeleted, deliveryDeleted] = await Promise.all([
+          cleanupAuditEvents(env.DB),
+          cleanupNotificationDeliveries(env.DB)
+        ]);
+        debug(`[Cron] 控制面记录清理完成: audit=${auditDeleted}, deliveries=${deliveryDeleted}`);
+      }
+
       if (day === 0 && hour === 0) {
         debug('[Cron] 开始执行每周数据清理任务（表轮换）');
         await weeklyCleanup(env.DB);

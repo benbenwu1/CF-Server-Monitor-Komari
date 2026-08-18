@@ -2,6 +2,7 @@ import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { clearServersListCache, getAllServers } from '../utils/cache.js';
 import { getExpireReminderDays, getResourceAlertConfig, getResourceAlertRuleThresholds, getTgNotifyMinutes, loadSiteSettings, debug } from '../utils/settings.js';
 import { detectBillingCycle, normalizeBillingCycle, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
+import { recordNotificationDelivery } from './notificationDelivery.js';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
@@ -259,196 +260,210 @@ async function evaluateResourceAlertRules(stub, ruleRequests) {
   return resultMap;
 }
 
-async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (response.ok) return response;
-      
-      if (i < retries - 1) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-      }
-    } catch (e) {
-      if (i < retries - 1) {
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-      } else {
-        throw e;
-      }
-    }
-  }
-  throw new Error('Max retries exceeded');
+const NOTIFICATION_PROVIDERS = new Set([
+  'telegram',
+  'onebot',
+  'feishu',
+  'dingtalk',
+  'bark',
+  'wecom',
+  'serverchan',
+  'wxpusher',
+  'gotify'
+]);
+
+function detectLegacyNotificationProvider(token, target) {
+  if (token.startsWith('onebot:')) return 'onebot';
+  if (token.includes('open.feishu.cn')) return 'feishu';
+  if (token.includes('oapi.dingtalk.com') || token.includes('api.dingtalk.com')) return 'dingtalk';
+  if (token.includes('https://api.day.app/') || token.startsWith('bark:')) return 'bark';
+  if (token.includes('https://qyapi.weixin.qq.com')) return 'wecom';
+  if (token.includes('https://sctapi.ftqq.com/') || token.startsWith('server:')) return 'serverchan';
+  if (token.includes('https://wxpusher.zjiecode.com/api/send/message/SPT_')) return 'wxpusher';
+  if (token.includes('/message?token=')) return 'gotify';
+  if (target) return 'telegram';
+  return 'unknown';
 }
 
-
-export async function sendNotification(settings, msg) {
-  if(!settings.tg_bot_token) return;
-  const title = "💌 Cloudflare Server Monitor";
-  if(settings.tg_bot_token.indexOf("onebot:") == 0) {
-    // OneBot 协议 (QQ 等)，私聊格式: onebot:http://127.0.0.1:3000/send_private_msg?access_token=xxx
-    // 群聊格式: onebot:http://127.0.0.1:3000/send_group_msg?access_token=xxx
-    let onebotUrl = settings.tg_bot_token.replace("onebot:", "");
-    const targetId = settings.tg_chat_id || '';
-    const isGroup = onebotUrl.indexOf("send_group_msg") != -1;
-    if (!targetId) {
-      return "OneBot 通知失败: 缺少 tg_chat_id（私人: QQ号，群: group:群号）";
-    }
-    try {
-      const endpoint = onebotUrl.trim();
-      const body = {
-        [isGroup ? 'group_id' : 'user_id']: targetId,
-        message: [
-          {
-            type: 'text',
-            data: {
-              text: `${title}\n${String(msg || '').replace(/\*/g, '')}\n`
-            }
-          }
-        ]
-      };
-      await fetchWithRetry(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-    } catch (e) {
-      return "OneBot 通知发送失败: " + e.message;
-    }
-  }else if(settings.tg_bot_token.includes("open.feishu.cn")) {
-    // 飞书机器人 Webhook
-    try {
-      await fetchWithRetry(settings.tg_bot_token, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        body: JSON.stringify({
-          msg_type: "interactive",
-          card: {
-            schema: "2.0",
-            header: { template: "blue", title: { content: title, tag: "plain_text" } },
-            body: { elements: [{ tag: "markdown", content: msg }] }
-          }
-        })
-      });
-    } catch (e) {
-      return "飞书通知发送失败: " + e.message;
-    }
-  }else if(settings.tg_bot_token.includes("oapi.dingtalk.com") || settings.tg_bot_token.includes("api.dingtalk.com")) {
-    // 钉钉机器人 Webhook
-    try {
-      await fetchWithRetry(settings.tg_bot_token, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          msgtype: "markdown",
-          markdown: { title: title, text: msg }
-        })
-      });
-    } catch (e) {
-      return "钉钉通知发送失败: " + e.message;
-    }
-  }else if(settings.tg_bot_token.includes("https://api.day.app/") || settings.tg_bot_token.indexOf("bark:") == 0) {
-    let barkUrl = settings.tg_bot_token;
-    if(barkUrl.indexOf("bark:") == 0) {
-      barkUrl = barkUrl.replace("bark:", "");
-    }
-    try {
-      await fetchWithRetry(barkUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: title,
-          markdown: msg,
-          group: "Cloudflare Server Monitor"
-        })
-      });
-    } catch (e) {
-      return "Bark通知发送失败: " + e.message;
-    }
-  }else if(settings.tg_bot_token.includes("https://qyapi.weixin.qq.com")){
-    try {
-      await fetchWithRetry(settings.tg_bot_token, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          msgtype: "text",
-          text: {
-            content: msg.replace(/\*/g, '')
-          }
-        })
-      });
-    } catch (e) {
-      return "企业微信通知发送失败: " + e.message;
-    }
-  // Server 酱（使用 sendkey）
-  }else if(settings.tg_bot_token.includes("https://sctapi.ftqq.com/") || settings.tg_bot_token.indexOf("server:") == 0) {
-    let serverUrl = settings.tg_bot_token;
-    if(serverUrl.indexOf("server:") == 0) {
-      serverUrl = serverUrl.replace("server:", "");
-    }
-    try {
-      await fetchWithRetry(serverUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: title,
-          desp: msg
-        })
-      });
-    } catch (e) {
-      return "Server酱通知发送失败: " + e.message;
-    }
-  }else if(settings.tg_bot_token.includes("https://wxpusher.zjiecode.com/api/send/message/SPT_")) {
-    const match = settings.tg_bot_token.match(/\/message\/([^/]+)/);
-    const spt = match ? match[1] : null;
-    if (!spt) return "WxPusher 通知失败: 无法提取 SPT";
-    try {
-      await fetchWithRetry("https://wxpusher.zjiecode.com/api/send/message/simple-push", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          "content": msg,
-          "summary": title,
-          "contentType":3,
-          "spt": spt,
-        })
-      });
-    } catch (e) {
-      return "WxPusher通知发送失败: " + e.message;
-    }
-  }else if(settings.tg_bot_token.includes("/message?token=")) {
-    try {
-      await fetchWithRetry(settings.tg_bot_token, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: title,
-          message: msg,
-          priority: 5,
-          extras: {
-            "client::display": { "contentType": "text/markdown" }
-          }
-        })
-      });
-    } catch (e) {
-      return "Gotify通知发送失败: " + e.message;
-    }
-  }else if(settings.tg_chat_id) {
-    // Telegram Bot (最后 fallback，通过 chat_id 判断)
-    try {
-      await fetchWithRetry(`https://api.telegram.org/bot${settings.tg_bot_token}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: settings.tg_chat_id,
-          text: msg,
-          parse_mode: 'Markdown'
-        })
-      });
-    } catch (e) {
-      return "Telegram 通知发送失败: " + e.message;
-    }
-  }else {
-    return "未知的通知方式";
+function resolveNotificationProvider(settings) {
+  const configured = String(settings?.notification_provider || 'auto').trim().toLowerCase();
+  if (configured && configured !== 'auto') {
+    return NOTIFICATION_PROVIDERS.has(configured) ? configured : 'unknown';
   }
+  return detectLegacyNotificationProvider(
+    String(settings?.tg_bot_token || ''),
+    String(settings?.tg_chat_id || '')
+  );
+}
+
+function jsonRequest(body, contentType = 'application/json') {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': contentType },
+    body: JSON.stringify(body)
+  };
+}
+
+function buildNotificationRequest(provider, settings, message, title) {
+  const token = String(settings?.tg_bot_token || '').trim();
+  const target = String(settings?.tg_chat_id || '').trim();
+  if (!token) return { error: 'missing_credential' };
+
+  if (provider === 'onebot') {
+    if (!target) return { error: 'missing_target' };
+    const url = token.startsWith('onebot:') ? token.slice('onebot:'.length).trim() : token;
+    const isGroup = url.includes('send_group_msg');
+    return {
+      url,
+      options: jsonRequest({
+        [isGroup ? 'group_id' : 'user_id']: target,
+        message: [{
+          type: 'text',
+          data: { text: `${title}\n${message.replace(/\*/g, '')}\n` }
+        }]
+      })
+    };
+  }
+  if (provider === 'feishu') {
+    return {
+      url: token,
+      options: jsonRequest({
+        msg_type: 'interactive',
+        card: {
+          schema: '2.0',
+          header: { template: 'blue', title: { content: title, tag: 'plain_text' } },
+          body: { elements: [{ tag: 'markdown', content: message }] }
+        }
+      }, 'application/json; charset=utf-8')
+    };
+  }
+  if (provider === 'dingtalk') {
+    return {
+      url: token,
+      options: jsonRequest({ msgtype: 'markdown', markdown: { title, text: message } })
+    };
+  }
+  if (provider === 'bark') {
+    return {
+      url: token.startsWith('bark:') ? token.slice('bark:'.length) : token,
+      options: jsonRequest({ title, markdown: message, group: 'Cloudflare Server Monitor' })
+    };
+  }
+  if (provider === 'wecom') {
+    return {
+      url: token,
+      options: jsonRequest({ msgtype: 'text', text: { content: message.replace(/\*/g, '') } })
+    };
+  }
+  if (provider === 'serverchan') {
+    return {
+      url: token.startsWith('server:') ? token.slice('server:'.length) : token,
+      options: jsonRequest({ title, desp: message })
+    };
+  }
+  if (provider === 'wxpusher') {
+    const match = token.match(/\/message\/([^/]+)/);
+    if (!match) return { error: 'invalid_provider_config' };
+    return {
+      url: 'https://wxpusher.zjiecode.com/api/send/message/simple-push',
+      options: jsonRequest({
+        content: message,
+        summary: title,
+        contentType: 3,
+        spt: match[1]
+      })
+    };
+  }
+  if (provider === 'gotify') {
+    return {
+      url: token,
+      options: jsonRequest({
+        title,
+        message,
+        priority: 5,
+        extras: { 'client::display': { contentType: 'text/markdown' } }
+      })
+    };
+  }
+  if (provider === 'telegram') {
+    if (!target) return { error: 'missing_target' };
+    return {
+      url: `https://api.telegram.org/bot${token}/sendMessage`,
+      options: jsonRequest({ chat_id: target, text: message, parse_mode: 'Markdown' })
+    };
+  }
+  return { error: 'unsupported_provider' };
+}
+
+async function fetchWithRetry(url, options, retries = MAX_RETRIES) {
+  let statusCode = null;
+  let error = 'network_error';
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      statusCode = response.status;
+      if (response.ok) {
+        return { success: true, attempts: attempt, statusCode, error: null };
+      }
+      error = `HTTP_${response.status}`;
+    } catch (_) {
+      statusCode = null;
+      error = 'network_error';
+    }
+
+    if (attempt < retries) {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+    }
+  }
+
+  return { success: false, attempts: retries, statusCode, error };
+}
+
+async function finalizeNotificationResult(result, context) {
+  if (!context?.db) return result;
+
+  try {
+    await recordNotificationDelivery(context.db, context.source, result);
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'notification.delivery.persist_failed',
+      provider: result.provider,
+      source: String(context.source || 'unknown'),
+      error: error?.name || 'Error'
+    }));
+  }
+  return result;
+}
+
+export async function sendNotification(settings, msg, context = null) {
+  const provider = resolveNotificationProvider(settings);
+  const message = String(msg || '');
+  const request = buildNotificationRequest(
+    provider,
+    settings,
+    message,
+    '💌 Cloudflare Server Monitor'
+  );
+
+  if (request.error) {
+    return finalizeNotificationResult({
+      success: false,
+      provider,
+      attempts: 0,
+      status_code: null,
+      error: request.error
+    }, context);
+  }
+
+  const result = await fetchWithRetry(request.url, request.options);
+  return finalizeNotificationResult({
+    success: result.success,
+    provider,
+    attempts: result.attempts,
+    status_code: result.statusCode,
+    error: result.error
+  }, context);
 }
 
 export async function checkOfflineNodes(db) {
@@ -514,13 +529,13 @@ export async function checkOfflineNodes(db) {
         .map(n => `• ${n.name} - ${formatLastReportTime(n.lastReportTime)}`)
         .join('\n');
       const msg = `⚠️ **节点离线告警** (${offlineNodes.length}个)\n\n${nodeList}`;
-      await sendNotification(siteSettings, msg);
+      await sendNotification(siteSettings, msg, { db, source: 'offline_alert' });
     }
 
     if (recoveredNodes.length > 0) {
       const nodeList = recoveredNodes.map(n => `• ${n.name}`).join('\n');
       const msg = `✅ **节点恢复通知** (${recoveredNodes.length}个)\n\n${nodeList}\n\n**时间:** ${new Date().toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})}`;
-      await sendNotification(siteSettings, msg);
+      await sendNotification(siteSettings, msg, { db, source: 'recovery' });
     }
   } catch (e) {
     console.error('离线检测失败:', e);
@@ -721,9 +736,14 @@ export async function checkResourceAlerts(env) {
 
     if (messageSections.length > 0) {
       const msg = `${messageSections.join('\n\n')}\n\n**时间:** ${formatCurrentTime()}`;
-      const notificationError = await sendNotification(siteSettings, msg);
-      if (notificationError) {
-        console.warn('[ResourceAlert] notification failed:', notificationError);
+      const delivery = await sendNotification(siteSettings, msg, { db, source: 'resource_alert' });
+      if (!delivery.success) {
+        console.warn(JSON.stringify({
+          event: 'notification.resource_alert.failed',
+          provider: delivery.provider,
+          attempts: delivery.attempts,
+          error: delivery.error
+        }));
       }
     }
   } catch (e) {
@@ -780,7 +800,7 @@ export async function checkExpiringServers(db) {
       const serverList = expiringServers.map(s => `• ${s.name} - 剩余${s.days}天 (${s.expire_date})`).join('\n');
       const msg = `⏰ **服务器到期提醒** (${expiringServers.length}个)\n\n${serverList}`;
       debug(`[Cron] 发送到期提醒通知: ${msg}`);
-      await sendNotification(siteSettings, msg);
+      await sendNotification(siteSettings, msg, { db, source: 'expiration' });
     }
   } catch (e) {
     console.error('到期检测失败:', e);

@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { sendNotification } from '../src/services/notification.js';
+
+test('sendNotification returns a structured retry result without exposing credentials', async () => {
+  const realFetch = globalThis.fetch;
+  const botToken = 'private-telegram-bot-token';
+  const chatId = 'private-telegram-chat-id';
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    return new Response('', { status: requests.length === 1 ? 503 : 200 });
+  };
+
+  try {
+    const result = await sendNotification({
+      notification_provider: 'telegram',
+      tg_bot_token: botToken,
+      tg_chat_id: chatId
+    }, 'test message');
+
+    assert.deepEqual(result, {
+      success: true,
+      provider: 'telegram',
+      attempts: 2,
+      status_code: 200,
+      error: null
+    });
+    assert.equal(requests.length, 2);
+
+    const serializedResult = JSON.stringify(result);
+    assert.equal(serializedResult.includes(botToken), false);
+    assert.equal(serializedResult.includes(chatId), false);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('legacy notification credential formats still auto-detect all supported providers', async () => {
+  const realFetch = globalThis.fetch;
+  const cases = [
+    ['onebot', { tg_bot_token: 'onebot:https://onebot.example/send_private_msg?access_token=private', tg_chat_id: '10001' }],
+    ['feishu', { tg_bot_token: 'https://open.feishu.cn/open-apis/bot/v2/hook/private' }],
+    ['dingtalk', { tg_bot_token: 'https://oapi.dingtalk.com/robot/send?access_token=private' }],
+    ['bark', { tg_bot_token: 'bark:https://api.day.app/private' }],
+    ['wecom', { tg_bot_token: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=private' }],
+    ['serverchan', { tg_bot_token: 'server:https://sctapi.ftqq.com/private.send' }],
+    ['wxpusher', { tg_bot_token: 'https://wxpusher.zjiecode.com/api/send/message/SPT_private' }],
+    ['gotify', { tg_bot_token: 'https://gotify.example/message?token=private' }],
+    ['telegram', { tg_bot_token: 'private-telegram-token', tg_chat_id: 'private-chat-id' }]
+  ];
+
+  globalThis.fetch = async () => new Response('', { status: 200 });
+
+  try {
+    for (const [provider, settings] of cases) {
+      const result = await sendNotification(settings, 'compatibility test');
+      assert.equal(result.success, true);
+      assert.equal(result.provider, provider);
+      assert.equal(result.attempts, 1);
+      assert.equal(result.error, null);
+      assert.equal(JSON.stringify(result).includes('private'), false);
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

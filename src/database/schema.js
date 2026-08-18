@@ -2,7 +2,7 @@ import { getAllServers, getLatestMetricsCache, setLatestMetricsCache, getMetrics
 import { saveSiteOptions, debug, getSettingByKey, normalizeLongHistoryPoints, DEFAULT_LONG_HISTORY_POINTS } from '../utils/settings.js';
 import { attachDiskMetricsObject, flattenDiskMetrics, isDisabledProbeMetric, normalizeProbeMetricRow } from '../utils/metrics.js';
 import { ensureServerOptimization, buildHistoryId, getServerHistoryInfo, getHistoryIdRange } from './indexOptimization.js';
-import { addHistoryColumns, ensureHistoryIndex, isHistoryOptimized } from './updateDatabase.js';
+import { addHistoryColumns, addServerColumns, ensureHistoryIndex, isHistoryOptimized } from './updateDatabase.js';
 import {
   buildSparseHistoryQuery,
   shouldUseSparseHistorySampling
@@ -46,6 +46,8 @@ export async function initDatabase(db) {
           region TEXT DEFAULT '',
           tags TEXT DEFAULT '',
           note TEXT DEFAULT '',
+          internal_note TEXT DEFAULT '',
+          public_note TEXT DEFAULT '',
           price TEXT DEFAULT '',
           billing_cycle TEXT DEFAULT 'month',
           auto_renewal TEXT DEFAULT '0',
@@ -75,6 +77,7 @@ export async function initDatabase(db) {
     } else {
       debug('检查servers表优化状态');
       await ensureServerOptimization(db);
+      await addServerColumns(db);
     }
 
     // 判断metrics_history表是否存在
@@ -134,6 +137,38 @@ export async function initDatabase(db) {
     }else{
       await ensureHistoryIndex(db);
     }
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        target_type TEXT,
+        target_id TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        detail TEXT,
+        dedupe_key TEXT UNIQUE,
+        count INTEGER NOT NULL DEFAULT 1,
+        first_occurred_at INTEGER NOT NULL,
+        last_occurred_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS notification_deliveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        status_code INTEGER,
+        error TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `).run();
 
     debug('✅ 数据库初始化完成');
     dbInitialized = true;

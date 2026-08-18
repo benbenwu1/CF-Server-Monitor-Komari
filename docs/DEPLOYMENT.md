@@ -60,6 +60,8 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 日常核对
 
+D1 Time Travel 恢复、Workers Logs/Traces 采样与脱敏流程见 [`OPERATIONS.md`](OPERATIONS.md)。
+
 ```bash
 npx wrangler whoami
 npx wrangler versions list

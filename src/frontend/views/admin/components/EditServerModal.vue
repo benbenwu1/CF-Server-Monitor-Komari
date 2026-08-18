@@ -31,9 +31,15 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">{{ trans.note }}</label>
-        <textarea name="edit_note" autocomplete="off" v-model="editForm.note" class="form-textarea" rows="2" :placeholder="trans.notePlaceholder"></textarea>
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.note }}</label>
+          <textarea name="edit_internal_note" autocomplete="off" v-model="editForm.internal_note" class="form-textarea" rows="2" :placeholder="trans.notePlaceholder"></textarea>
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.publicNote }}</label>
+          <textarea name="edit_public_note" autocomplete="off" v-model="editForm.public_note" class="form-textarea" rows="2" :placeholder="trans.publicNotePlaceholder"></textarea>
+        </div>
       </div>
 
       <div class="form-row mobile-two-row">
@@ -80,6 +86,7 @@
             <option value="ul">{{ trans.trafficCalcUl }}</option>
             <option value="dl">{{ trans.trafficCalcDl }}</option>
             <option value="max">{{ trans.trafficCalcMax }}</option>
+            <option value="min">{{ trans.trafficCalcMin }}</option>
           </select>
         </div>
         <div class="form-group flex-1">

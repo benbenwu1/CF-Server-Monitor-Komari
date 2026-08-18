@@ -2,7 +2,7 @@ const CURRENT_VERSION = '2.8.4 Beta1';
 export const DEFAULT_SITE_TITLE = 'Cloudflare Server Monitor';
 export const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'favicon', 'custom_head', 'custom_script', 'csp_static', 'csp_api', 'display_mode', 'theme_options'];
 
-export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_time', 'wss_report_enabled', 'long_history_points', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
+export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_time', 'wss_report_enabled', 'long_history_points', 'tg_notify', 'notification_provider', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
 
 const SITE_SETTINGS_TTL = 120 * 1000;
 const JWT_SECRET_MIN_LENGTH = 32;
@@ -53,6 +53,7 @@ const defaults = {
   wss_report_enabled: 'false',
   long_history_points: String(DEFAULT_LONG_HISTORY_POINTS),
   tg_notify: '0',
+  notification_provider: 'auto',
   tg_bot_token: '',
   tg_chat_id: '',
   turnstile_enabled: 'false',

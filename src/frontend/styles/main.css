@@ -1141,6 +1141,18 @@ body::before {
     font-size: 12px;
 }
 
+.server-public-note {
+    margin: -4px 0 12px;
+    padding: 8px 10px;
+    border-left: 2px solid var(--accent-blue);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .card-meta {
     display: flex;
     gap: 12px;
@@ -1715,6 +1727,31 @@ body::before {
 
 .note-text.note-copied,.spec-text.spec-copied {
     color: var(--accent-green);
+}
+
+.notification-delivery-list {
+    margin: 12px 0 18px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.notification-delivery-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 6px 0;
+    color: var(--accent-green);
+    font-size: 12px;
+    border-bottom: 1px dashed var(--border-color);
+}
+
+.notification-delivery-item:last-child {
+    border-bottom: 0;
+}
+
+.notification-delivery-item.failed {
+    color: var(--accent-red);
 }
 
 .server-ip-list {
@@ -2417,6 +2454,13 @@ body::before {
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 12px;
+}
+
+.server-detail-public-note {
+    margin: 0;
+    padding: 12px 20px;
+    border-left: 0;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .host-name {

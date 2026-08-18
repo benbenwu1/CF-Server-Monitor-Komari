@@ -8,6 +8,14 @@ Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运
 
 当前状态（2026-08-18）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
+Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
+
+- [`capability-roadmap-2026.md`](capability-roadmap-2026.md)：Komari 全能力、当前 Fork 源码、线上启用状态和 P0/P1/P2 评分矩阵。
+- [`cloudflare-free-platform-2026.md`](cloudflare-free-platform-2026.md)：Cloudflare 官方免费额度、新增产品能力与本项目采用边界。
+- [`OPERATIONS.md`](OPERATIONS.md)：D1 Time Travel 恢复、Workers Logs/Traces 采样、脱敏和配额运维手册。
+
+P0 功能包已在本地工作树完成并通过回归；仍不自动扩展到 P1/P2，不提交、不部署、不推送，除非另行明确授权。
+
 ## 上游关系
 
 - `origin`: `benbenwu1/CF-Server-Monitor-Komari`
@@ -29,12 +37,28 @@ Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运
 
 ## 从 Komari 借鉴的方向
 
-- 更清晰的节点详情和历史指标编组。
-- 登录事件通知、审计日志和更细的访客权限。
-- 周期流量报告和更完整的通知策略。
-- 可管理的主题配置，而不是把任意服务端代码引入 Workers。
+- P0：登录成功/失败安全事件、管理操作审计、内部/公开备注、`min` 流量算法、通知投递状态。
+- P1：Session、TOTP、GitHub OAuth 或 generic OIDC、任意 ICMP/TCP/HTTP PingTask、D1 导出与可选 R2 备份。
+- P2：Analytics Engine 遥测、Browser Run 低频网页检查、Workflows 编排、完整 GPU 温度与逐卡显存。
+- 保留 CFSM 的主题模型，不把 Komari 的任意服务端代码引入 Workers。
 
 每个候选功能须先通过以下检查：Cloudflare 免费额度、D1 读写量、Durable Objects 持续时长、权限模型、与上游合并成本。
+
+Komari 当前只有登录成功通知；内建周期流量报告已声明将在 1.5.0 移除；NextTrace、iperf3 和 MeshTrace 只是协议预留。这三项不得再按成熟上游能力排期。
+
+## P0 实施结果（本地工作树）
+
+- [x] 登录成功/失败安全事件；失败按 IP 和五分钟窗口聚合，每窗口最多写 20 次；审计保留 90 天。
+- [x] 节点、设置、通知测试与批量节点操作审计；认证接口支持事件类型筛选、分页和最多 100 条/页。
+- [x] 审计写入采用 best-effort 故障隔离，不会把已完成的业务写入或正常 401 响应误报成 500；失败日志不包含 Secret。
+- [x] `internal_note` / `public_note` 分离；旧 `note` 自动迁移为内部备注，公开 API 只返回公开备注。
+- [x] 流量口径增加 `min`，并锁定 `total`、`ul`、`dl`、`max` 四种旧结果不变。
+- [x] 通知 Provider 显式化并兼容原九类格式；返回安全的结构化重试结果，投递记录保留 30 天，设置读取不回显通知凭据。
+- [x] Provider 变更必须显式提交替换凭据，避免把旧 Provider 的 Token 误用于新渠道。
+- [x] 免费额度面板使用统一常量，并按 2026-08-18 Cloudflare 官方 D1、Workers、Durable Objects 页面复核。
+- [x] 增加 D1 Time Travel、Workers Logs / Traces 采样与脱敏运维手册；UTC 00:00 Cron 幂等初始化后清理过期控制面记录。
+
+当前验证结果：41 项 Node 测试全部通过，前端生产构建和 `wrangler deploy --dry-run` 通过。管理审计已经具备完整 API；独立审计 Tab 作为后续界面增强，不扩大本次 P0 验收范围。通知仍为 Worker 内同步重试，Queues 异步投递保持 P1。
 
 ## 明确不做
 
