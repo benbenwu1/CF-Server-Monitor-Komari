@@ -14,7 +14,7 @@ Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
 - [`cloudflare-free-platform-2026.md`](cloudflare-free-platform-2026.md)：Cloudflare 官方免费额度、新增产品能力与本项目采用边界。
 - [`OPERATIONS.md`](OPERATIONS.md)：D1 Time Travel 恢复、Workers Logs/Traces 采样、脱敏和配额运维手册。
 
-P0 功能包已在本地工作树完成并通过回归；仍不自动扩展到 P1/P2，不提交、不部署、不推送，除非另行明确授权。
+控制面 P0 与独立管理审计界面已在本地分支完成并通过回归；仍不自动扩展到 P1/P2，未部署、未推送，除非另行明确授权。
 
 ## 上游关系
 
@@ -46,10 +46,11 @@ P0 功能包已在本地工作树完成并通过回归；仍不自动扩展到 P
 
 Komari 当前只有登录成功通知；内建周期流量报告已声明将在 1.5.0 移除；NextTrace、iperf3 和 MeshTrace 只是协议预留。这三项不得再按成熟上游能力排期。
 
-## P0 实施结果（本地工作树）
+## P0 实施结果（本地分支）
 
 - [x] 登录成功/失败安全事件；失败按 IP 和五分钟窗口聚合，每窗口最多写 20 次；审计保留 90 天。
 - [x] 节点、设置、通知测试与批量节点操作审计；认证接口支持事件类型筛选、分页和最多 100 条/页。
+- [x] 独立管理审计 Tab 按需加载，每页固定读取 20 条，支持事件类型精确筛选、刷新和前后翻页。
 - [x] 审计写入采用 best-effort 故障隔离，不会把已完成的业务写入或正常 401 响应误报成 500；失败日志不包含 Secret。
 - [x] `internal_note` / `public_note` 分离；旧 `note` 自动迁移为内部备注，公开 API 只返回公开备注。
 - [x] 流量口径增加 `min`，并锁定 `total`、`ul`、`dl`、`max` 四种旧结果不变。
@@ -58,7 +59,7 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] 免费额度面板使用统一常量，并按 2026-08-18 Cloudflare 官方 D1、Workers、Durable Objects 页面复核。
 - [x] 增加 D1 Time Travel、Workers Logs / Traces 采样与脱敏运维手册；UTC 00:00 Cron 幂等初始化后清理过期控制面记录。
 
-当前验证结果：41 项 Node 测试全部通过，前端生产构建和 `wrangler deploy --dry-run` 通过。管理审计已经具备完整 API；独立审计 Tab 作为后续界面增强，不扩大本次 P0 验收范围。通知仍为 Worker 内同步重试，Queues 异步投递保持 P1。
+当前验证结果：42 项 Node 测试全部通过，前端生产构建和 `wrangler deploy --dry-run` 通过。管理审计已具备完整 API 和独立界面；通知仍为 Worker 内同步重试，Queues 异步投递保持 P1。
 
 ## 明确不做
 

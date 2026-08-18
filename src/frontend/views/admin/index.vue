@@ -94,6 +94,11 @@
           >▸ {{ trans.dbManagement }}</button>
           <button
             class="tab-btn"
+            :class="{ active: activeTab === 'audit' }"
+            @click="activeTab = 'audit'"
+          >▸ {{ trans.auditLog }}</button>
+          <button
+            class="tab-btn"
             :class="{ active: activeTab === 'themeStore' }"
             @click="activeTab = 'themeStore'"
           >▸ {{ trans.themeStore }}</button>
@@ -156,6 +161,18 @@
           :db-loading="dbLoading"
           :selected-api-index="selectedApiIndex"
           @open-db-modal="openDbModal"
+        />
+
+        <AuditPanel
+          :trans="trans"
+          :active-tab="activeTab"
+          :events="auditEvents"
+          :pagination="auditPagination"
+          :event-type="auditEventType"
+          :loading="auditLoading"
+          @refresh="loadAuditEvents(auditPagination.page)"
+          @event-type-change="handleAuditEventTypeChange"
+          @page-change="loadAuditEvents"
         />
 
         <ThemeStorePanel
@@ -555,6 +572,7 @@ import AdminLogin from './components/AdminLogin.vue'
 import ServerTable from './components/ServerTable.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
+import AuditPanel from './components/AuditPanel.vue'
 import ThemeStorePanel from './components/ThemeStorePanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'
@@ -570,6 +588,7 @@ import { usePasswordVisibility } from '../../composables/usePasswordVisibility'
 import { useTurnstile } from './composables/useTurnstile'
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
 import { getCloudflareFreeDailyQuotas } from '../../utils/cloudflareQuotas.js'
+import { buildAuditListRequest, normalizeAuditPage } from '../../utils/audit.js'
 
 const trans = useTranslation()
 const cloudflareFreeQuotas = getCloudflareFreeDailyQuotas()
@@ -964,6 +983,11 @@ const autoUpdatePendingEnable = ref(false)
 const testNotificationLoading = ref(false)
 const notificationDeliveries = ref([])
 const savedNotificationProvider = ref('auto')
+const auditEvents = ref([])
+const auditPagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 0 })
+const auditEventType = ref('')
+const auditLoading = ref(false)
+let auditRequestSequence = 0
 
 const saveResult = ref(null)
 
@@ -1168,6 +1192,10 @@ const handleApiIndexChange = async (newIndex) => {
 }
 
 const resetAdminContext = () => {
+  auditRequestSequence += 1
+  auditEvents.value = []
+  auditPagination.value = { page: 1, page_size: 20, total: 0, total_pages: 0 }
+  auditLoading.value = false
   selectedServers.value = []
   showEditModal.value = false
   showDeleteModal.value = false
@@ -1180,11 +1208,13 @@ const switchAdminSite = async () => {
   resetAdminContext()
   adminSiteLoading.value = true
   try {
-    await Promise.all([
+    const loaders = [
       loadSettings(),
       loadServers(),
       loadLatestAgentVersion()
-    ])
+    ]
+    if (activeTab.value === 'audit') loaders.push(loadAuditEvents(1))
+    await Promise.all(loaders)
   } finally {
     adminSiteLoading.value = false
   }
@@ -2001,6 +2031,39 @@ const loadNotificationDeliveries = async () => {
     notificationDeliveries.value = []
   }
 }
+
+const loadAuditEvents = async (page = 1) => {
+  const requestSequence = ++auditRequestSequence
+  auditLoading.value = true
+  try {
+    const result = await adminApiForSite(buildAuditListRequest({
+      eventType: auditEventType.value,
+      page
+    }))
+    if (requestSequence !== auditRequestSequence) return
+    if (result.error) return
+    const normalized = normalizeAuditPage(result.data)
+    auditEvents.value = normalized.events
+    auditPagination.value = normalized.pagination
+  } catch (error) {
+    if (requestSequence === auditRequestSequence) {
+      console.error('[ERROR] Load audit events failed:', error)
+    }
+  } finally {
+    if (requestSequence === auditRequestSequence) {
+      auditLoading.value = false
+    }
+  }
+}
+
+const handleAuditEventTypeChange = async (eventType) => {
+  auditEventType.value = eventType
+  await loadAuditEvents(1)
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'audit') void loadAuditEvents(1)
+})
 
 watch(() => route.query.apiIndex, async (value) => {
   const nextIndex = normalizeApiIndex(value)

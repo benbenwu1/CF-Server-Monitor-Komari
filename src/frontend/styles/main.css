@@ -1754,6 +1754,95 @@ body::before {
     color: var(--accent-red);
 }
 
+.audit-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.audit-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.audit-controls .form-label {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.audit-controls .form-select {
+    width: min(360px, 100%);
+}
+
+.audit-table-wrapper {
+    min-height: 180px;
+}
+
+.audit-table code {
+    color: var(--accent-cyan);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.audit-time {
+    min-width: 150px;
+    white-space: nowrap;
+}
+
+.audit-actor {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 120px;
+}
+
+.audit-actor small {
+    color: var(--text-muted);
+}
+
+.audit-detail {
+    min-width: 180px;
+    max-width: 360px;
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+}
+
+.audit-outcome {
+    display: inline-flex;
+    padding: 2px 7px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.audit-outcome.success {
+    color: var(--accent-green);
+}
+
+.audit-outcome.failure {
+    color: var(--accent-red);
+}
+
+.audit-empty {
+    height: 120px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.audit-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
 .server-ip-list {
     display: inline-flex;
     flex-direction: column;
@@ -4293,6 +4382,26 @@ body.mikus-theme .mikus-stats-mascot-img {
 
     .btn, .tab-btn{
         padding: 8px;
+    }
+
+    .tabs {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .tab-btn {
+        flex: 1 1 auto;
+    }
+
+    .audit-panel-header,
+    .audit-controls,
+    .audit-pagination {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .audit-controls .form-select {
+        width: 100%;
     }
 
     .terminal-dots{
