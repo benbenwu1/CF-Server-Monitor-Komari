@@ -6,6 +6,8 @@ const TOTP_SETUP_TTL_MS = 10 * 60 * 1000;
 const RECOVERY_CODE_COUNT = 10;
 const RECOVERY_CODE_BYTES = 10;
 const ENCRYPTION_KEY_MIN_LENGTH = 32;
+const SECOND_FACTOR_ATTEMPT_LIMIT = 5;
+const SECOND_FACTOR_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
 const SETTINGS = Object.freeze({
@@ -165,6 +167,59 @@ function deleteSetting(db, key) {
   return db.prepare('DELETE FROM settings WHERE key = ?').bind(key);
 }
 
+async function hashRateLimitScope(scope, windowStartedAt) {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(`${String(scope || '')}:${windowStartedAt}`)
+  );
+  return encodeBase64Url(new Uint8Array(digest));
+}
+
+async function reserveSecondFactorAttempt(db, scope, now) {
+  if (!scope) return { allowed: true, scopeKey: null };
+
+  const windowStartedAt = Math.floor(now / SECOND_FACTOR_ATTEMPT_WINDOW_MS) * SECOND_FACTOR_ATTEMPT_WINDOW_MS;
+  const expiresAt = windowStartedAt + SECOND_FACTOR_ATTEMPT_WINDOW_MS;
+  const scopeKey = await hashRateLimitScope(scope, windowStartedAt);
+  const [, reservation] = await db.batch([
+    db.prepare('DELETE FROM admin_second_factor_attempts WHERE expires_at <= ?').bind(now),
+    db.prepare(`
+      INSERT INTO admin_second_factor_attempts (
+        scope_key,
+        attempt_count,
+        window_started_at,
+        expires_at,
+        updated_at
+      ) VALUES (?, 1, ?, ?, ?)
+      ON CONFLICT(scope_key) DO UPDATE SET
+        attempt_count = admin_second_factor_attempts.attempt_count + 1,
+        updated_at = excluded.updated_at
+      WHERE admin_second_factor_attempts.attempt_count < ?
+    `).bind(
+      scopeKey,
+      windowStartedAt,
+      expiresAt,
+      now,
+      SECOND_FACTOR_ATTEMPT_LIMIT
+    )
+  ]);
+
+  return {
+    allowed: Number(reservation?.meta?.changes || 0) > 0,
+    scopeKey,
+    retryAfter: Math.ceil(SECOND_FACTOR_ATTEMPT_WINDOW_MS / 1000)
+  };
+}
+
+async function releaseSecondFactorAttempt(db, scopeKey) {
+  if (!scopeKey) return;
+  await db.prepare(`
+    UPDATE admin_second_factor_attempts
+    SET attempt_count = CASE WHEN attempt_count > 0 THEN attempt_count - 1 ELSE 0 END
+    WHERE scope_key = ?
+  `).bind(scopeKey).run();
+}
+
 async function hashRecoveryCode(code, encryptionSecret) {
   const normalized = normalizeRecoveryCode(code);
   if (!normalized) return '';
@@ -294,48 +349,87 @@ export async function confirmAdminTotpSetup(db, encryptionSecret, code, now = Da
     return { success: false, reason: 'invalid_totp_code' };
   }
   const recovery = await generateRecoveryCodes(encryptionSecret);
-  await db.batch([
-    upsertSetting(db, SETTINGS.enabled, 'true'),
-    upsertSetting(db, SETTINGS.secret, pending.encrypted_secret),
-    upsertSetting(db, SETTINGS.recoveryCodes, JSON.stringify(recovery.hashes)),
-    deleteSetting(db, SETTINGS.pending)
+  const conditionalUpsert = (key, value) => db.prepare(`
+    INSERT INTO settings (key, value)
+    SELECT ?, ?
+    WHERE EXISTS (
+      SELECT 1 FROM settings WHERE key = ? AND value = ?
+    )
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).bind(key, String(value), SETTINGS.pending, pendingValue);
+  const results = await db.batch([
+    conditionalUpsert(SETTINGS.enabled, 'true'),
+    conditionalUpsert(SETTINGS.secret, pending.encrypted_secret),
+    conditionalUpsert(SETTINGS.recoveryCodes, JSON.stringify(recovery.hashes)),
+    db.prepare('DELETE FROM settings WHERE key = ? AND value = ?')
+      .bind(SETTINGS.pending, pendingValue)
   ]);
+  if (Number(results[3]?.meta?.changes || 0) === 0) {
+    return { success: false, reason: 'totp_setup_not_found' };
+  }
   return { success: true, recoveryCodes: recovery.codes };
 }
 
 export async function verifyAdminSecondFactor(
   db,
   encryptionSecret,
-  { totpCode, recoveryCode } = {},
+  { totpCode, recoveryCode, rateLimitScope } = {},
   now = Date.now()
 ) {
   if (!await isAdminTotpEnabled(db)) {
     return { required: false, valid: true, method: null };
   }
   getEncryptionSecret(encryptionSecret);
+  const hasFactorInput = !!String(totpCode || recoveryCode || '').trim();
+  const reservation = hasFactorInput
+    ? await reserveSecondFactorAttempt(db, rateLimitScope, now)
+    : { allowed: true, scopeKey: null };
+  if (!reservation.allowed) {
+    return {
+      required: true,
+      valid: false,
+      method: null,
+      rateLimited: true,
+      retryAfter: reservation.retryAfter
+    };
+  }
+
+  let result;
   if (totpCode) {
     const encryptedSecret = await getSetting(db, SETTINGS.secret);
     if (!encryptedSecret) throw new Error('totp_secret_unavailable');
     const secret = await decryptSecret(encryptedSecret, encryptionSecret);
-    return {
+    result = {
       required: true,
       valid: await verifyTotpCode(secret, totpCode, now),
       method: 'totp'
     };
-  }
-  if (recoveryCode) {
-    return {
+  } else if (recoveryCode) {
+    result = {
       required: true,
       valid: await consumeRecoveryCode(db, recoveryCode, encryptionSecret),
       method: 'recovery'
     };
+  } else {
+    result = { required: true, valid: false, method: null };
   }
-  return { required: true, valid: false, method: null };
+
+  if (result.valid) {
+    await releaseSecondFactorAttempt(db, reservation.scopeKey);
+  }
+  return result;
 }
 
 export async function disableAdminTotp(db, encryptionSecret, factor, now = Date.now()) {
   const verification = await verifyAdminSecondFactor(db, encryptionSecret, factor, now);
   if (!verification.required) return { success: false, reason: 'totp_not_enabled' };
+  if (verification.rateLimited) {
+    return {
+      success: false,
+      reason: 'second_factor_rate_limited',
+      retryAfter: verification.retryAfter
+    };
+  }
   if (!verification.valid) return { success: false, reason: 'invalid_second_factor' };
   await db.batch([
     deleteSetting(db, SETTINGS.enabled),

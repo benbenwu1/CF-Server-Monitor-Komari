@@ -1589,7 +1589,12 @@ const saveSettings = async () => {
       settings.value.jwt_secret = ''
       await loadSettings()
     } else {
-      saveResult.value = { success: false, error: getMessage(result.error) || 'fail' }
+      saveResult.value = {
+        success: false,
+        error: result.code === 'second_factor_rate_limited'
+          ? trans.value.totpRateLimited
+          : getMessage(result.error) || 'fail'
+      }
     }
   } catch (e) {
     saveResult.value = { success: false, error: e.message }
@@ -2318,9 +2323,11 @@ const disableTotp = async (code) => {
     }, apiIndex)
     if (apiIndex !== selectedApiIndex.value) return
     if (result.error) {
-      alertMessage.value = result.code === 'invalid_second_factor'
-        ? trans.value.totpInvalidCode
-        : getMessage(result.error) || result.error
+      alertMessage.value = result.code === 'second_factor_rate_limited'
+        ? trans.value.totpRateLimited
+        : result.code === 'invalid_second_factor'
+          ? trans.value.totpInvalidCode
+          : getMessage(result.error) || result.error
       return
     }
     totpEnabled.value = false

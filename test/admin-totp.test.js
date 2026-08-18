@@ -38,12 +38,12 @@ function totpCode(secret, now = Date.now()) {
   return String(binary % 1000000).padStart(6, '0');
 }
 
-function adminRequest(body, token = '') {
+function adminRequest(body, token = '', ipAddress = '203.0.113.91') {
   return new Request('https://monitor.example/admin/api', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'CF-Connecting-IP': '203.0.113.91',
+      'CF-Connecting-IP': ipAddress,
       'User-Agent': 'TOTP integration test',
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
@@ -98,11 +98,20 @@ test('admin can enroll TOTP, use one-time recovery codes, protect settings, and 
     assert.match(setup.secret, /^[A-Z2-7]{32}$/);
     assert.match(setup.otpauth_uri, /^otpauth:\/\/totp\//);
 
-    const confirmResponse = await handleAdminAPI(
-      adminRequest({ action: 'totp_confirm', code: totpCode(setup.secret) }, initialToken),
-      env,
-      sys
-    );
+    const confirmResponses = await Promise.all([
+      handleAdminAPI(
+        adminRequest({ action: 'totp_confirm', code: totpCode(setup.secret) }, initialToken),
+        env,
+        sys
+      ),
+      handleAdminAPI(
+        adminRequest({ action: 'totp_confirm', code: totpCode(setup.secret) }, initialToken),
+        env,
+        sys
+      )
+    ]);
+    assert.deepEqual(confirmResponses.map(response => response.status).sort(), [200, 400]);
+    const confirmResponse = confirmResponses.find(response => response.status === 200);
     assert.equal(confirmResponse.status, 200);
     assert.equal(confirmResponse.headers.get('Cache-Control'), 'no-store');
     const confirmed = await confirmResponse.json();
@@ -141,6 +150,23 @@ test('admin can enroll TOTP, use one-time recovery codes, protect settings, and 
     assert.equal(auditBody.events.length, 1);
     assert.equal(JSON.stringify(auditBody).includes(setup.secret), false);
     assert.equal(JSON.stringify(auditBody).includes(confirmed.recovery_codes[0]), false);
+
+    const concurrentInvalidLogins = await Promise.all(
+      Array.from({ length: 6 }, (_, attempt) => handleAdminAPI(
+        adminRequest({
+          action: 'login',
+          username,
+          password,
+          recovery_code: `CONCURRENT-INVALID-${attempt}`
+        }, '', '203.0.113.92'),
+        env,
+        sys
+      ))
+    );
+    assert.deepEqual(
+      concurrentInvalidLogins.map(response => response.status).sort(),
+      [401, 401, 401, 401, 401, 429]
+    );
 
     const missingFactorLogin = await handleAdminAPI(
       adminRequest({ action: 'login', username, password }),
@@ -258,6 +284,59 @@ test('admin can enroll TOTP, use one-time recovery codes, protect settings, and 
     assert.equal(
       (await setupWithoutEncryptionKey.json()).error,
       'totp_encryption_key_unavailable'
+    );
+
+    env.TOTP_ENCRYPTION_KEY = 'test-only-totp-encryption-key-with-32-chars';
+    const postDisableToken = (await handleAdminAPI(
+      adminRequest({ action: 'login', username, password }),
+      env,
+      sys
+    ).then(response => response.json())).token;
+    const secondSetupResponse = await handleAdminAPI(
+      adminRequest({ action: 'totp_setup' }, postDisableToken),
+      env,
+      sys
+    );
+    const secondSetup = await secondSetupResponse.json();
+    const secondConfirmResponse = await handleAdminAPI(
+      adminRequest({ action: 'totp_confirm', code: totpCode(secondSetup.secret) }, postDisableToken),
+      env,
+      sys
+    );
+    assert.equal(secondConfirmResponse.status, 200);
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const invalidSettingsResponse = await handleAdminAPI(
+        adminRequest({
+          action: 'save_settings',
+          settings: { cloudflare_account_id: `blocked-${attempt}` },
+          totp_code: '000000'
+        }, postDisableToken),
+        env,
+        sys
+      );
+      assert.equal(invalidSettingsResponse.status, 428);
+    }
+    const invalidDisableResponse = await handleAdminAPI(
+      adminRequest({ action: 'totp_disable', code: '000000' }, postDisableToken),
+      env,
+      sys
+    );
+    assert.equal(invalidDisableResponse.status, 428);
+
+    const authenticatedRateLimitResponse = await handleAdminAPI(
+      adminRequest({
+        action: 'totp_disable',
+        code: totpCode(secondSetup.secret)
+      }, postDisableToken),
+      env,
+      sys
+    );
+    assert.equal(authenticatedRateLimitResponse.status, 429);
+    assert.equal(authenticatedRateLimitResponse.headers.get('Retry-After'), '300');
+    assert.equal(
+      (await authenticatedRateLimitResponse.json()).code,
+      'second_factor_rate_limited'
     );
   } finally {
     await miniflare.dispose();

@@ -190,6 +190,16 @@ export async function initDatabase(db) {
       ON admin_sessions(revoked_at, expires_at)
     `).run();
 
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS admin_second_factor_attempts (
+        scope_key TEXT PRIMARY KEY,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        window_started_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run();
+
     debug('✅ 数据库初始化完成');
     dbInitialized = true;
   } catch (e) {

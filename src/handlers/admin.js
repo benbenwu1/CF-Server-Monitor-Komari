@@ -22,7 +22,6 @@ const THEME_PREVIEW_AUTH_TTL = 600;
 const DURABLE_OBJECTS_WEBSOCKET_MESSAGE_BILLING_RATIO = 20;
 const LOGIN_FAILURE_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 const LOGIN_FAILURE_AUDIT_WRITE_LIMIT = 20;
-const SECOND_FACTOR_ATTEMPT_LIMIT = 5;
 
 function createSecondFactorResponse(code, status = 401) {
   return new Response(JSON.stringify({
@@ -30,7 +29,21 @@ function createSecondFactorResponse(code, status = 401) {
     code
   }), {
     status,
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
+  });
+}
+
+function createSecondFactorRateLimitResponse(retryAfter = 300) {
+  return new Response(JSON.stringify({
+    error: 'second_factor_rate_limited',
+    code: 'second_factor_rate_limited'
+  }), {
+    status: 429,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'Retry-After': String(retryAfter)
+    }
   });
 }
 
@@ -55,16 +68,12 @@ function getLoginFailureDedupeKey(request, occurredAt = Date.now()) {
     : null;
 }
 
-async function isSecondFactorRateLimited(db, request, occurredAt = Date.now()) {
-  const dedupeKey = getLoginFailureDedupeKey(request, occurredAt);
-  if (!dedupeKey) return false;
-  const event = await db.prepare(`
-    SELECT count
-    FROM audit_events
-    WHERE dedupe_key = ?
-    LIMIT 1
-  `).bind(dedupeKey).first();
-  return Number(event?.count || 0) >= SECOND_FACTOR_ATTEMPT_LIMIT;
+function getLoginSecondFactorRateLimitScope(request) {
+  return `login:${request.headers.get('CF-Connecting-IP') || 'unknown'}`;
+}
+
+function getAuthenticatedSecondFactorRateLimitScope(env, sys) {
+  return `admin:${sys?.username || env.API_USER_NAME || 'admin'}`;
 }
 
 async function recordLoginAuditEvent(db, request, eventType, outcome, detail) {
@@ -590,26 +599,18 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
 
       let secondFactor;
       const hasSecondFactorInput = !!String(data.totp_code || data.recovery_code || '').trim();
-      if (
-        hasSecondFactorInput &&
-        await isAdminTotpEnabled(env.DB) &&
-        await isSecondFactorRateLimited(env.DB, request)
-      ) {
-        return new Response(JSON.stringify({
-          error: 'second_factor_rate_limited',
-          code: 'second_factor_rate_limited'
-        }), {
-          status: 429,
-          headers: { 'Content-Type': 'application/json', 'Retry-After': '300' }
-        });
-      }
       try {
         secondFactor = await verifyAdminSecondFactor(env.DB, env.TOTP_ENCRYPTION_KEY, {
           totpCode: data.totp_code,
-          recoveryCode: data.recovery_code
+          recoveryCode: data.recovery_code,
+          rateLimitScope: getLoginSecondFactorRateLimitScope(request)
         });
       } catch (error) {
         return createErrorResponse(error);
+      }
+
+      if (secondFactor.rateLimited) {
+        return createSecondFactorRateLimitResponse(secondFactor.retryAfter);
       }
 
       if (secondFactor.required && !secondFactor.valid) {
@@ -713,9 +714,21 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
     else if (data.action === 'totp_disable') {
       const disabled = await disableAdminTotp(env.DB, env.TOTP_ENCRYPTION_KEY, {
         totpCode: data.code,
-        recoveryCode: data.recovery_code
+        recoveryCode: data.recovery_code,
+        rateLimitScope: getAuthenticatedSecondFactorRateLimitScope(env, sys)
       });
       if (!disabled.success) {
+        if (disabled.reason === 'second_factor_rate_limited') {
+          return createSecondFactorRateLimitResponse(disabled.retryAfter);
+        }
+        if (disabled.reason === 'invalid_second_factor') {
+          await recordAdminAuditEvent(env.DB, request, {
+            eventType: 'admin.totp.disable',
+            outcome: 'failure',
+            targetType: 'admin_security',
+            detail: { reason: disabled.reason }
+          });
+        }
         return disabled.reason === 'totp_not_enabled'
           ? createBadRequestResponse(disabled.reason)
           : createSecondFactorResponse(disabled.reason, 428);
@@ -986,9 +999,21 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         requiresTotpForSettings(settings, sys)
       ) {
         const verification = await verifyAdminSecondFactor(env.DB, env.TOTP_ENCRYPTION_KEY, {
-          totpCode: data.totp_code
+          totpCode: data.totp_code,
+          rateLimitScope: getAuthenticatedSecondFactorRateLimitScope(env, sys)
         });
+        if (verification.rateLimited) {
+          return createSecondFactorRateLimitResponse(verification.retryAfter);
+        }
         if (!verification.valid) {
+          if (String(data.totp_code || '').trim()) {
+            await recordAdminAuditEvent(env.DB, request, {
+              eventType: 'admin.settings.second_factor',
+              outcome: 'failure',
+              targetType: 'settings',
+              detail: { reason: 'invalid_second_factor' }
+            });
+          }
           return createSecondFactorResponse(
             String(data.totp_code || '').trim() ? 'invalid_second_factor' : 'totp_required',
             428
