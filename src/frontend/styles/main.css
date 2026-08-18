@@ -1843,6 +1843,67 @@ body::before {
     font-size: 12px;
 }
 
+.session-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.session-table-wrapper {
+    min-height: 180px;
+}
+
+.session-table code {
+    color: var(--accent-cyan);
+    font-size: 11px;
+}
+
+.session-device,
+.session-ip {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 150px;
+    max-width: 320px;
+    overflow-wrap: anywhere;
+}
+
+.session-device small,
+.session-ip small {
+    color: var(--text-muted);
+}
+
+.session-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.session-badge {
+    display: inline-flex;
+    padding: 2px 7px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.session-badge.current,
+.session-badge.online {
+    color: var(--accent-green);
+}
+
+.session-badge.offline {
+    color: var(--text-muted);
+}
+
+.session-empty {
+    height: 120px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
 .server-ip-list {
     display: inline-flex;
     flex-direction: column;
@@ -4394,6 +4455,7 @@ body.mikus-theme .mikus-stats-mascot-img {
     }
 
     .audit-panel-header,
+    .session-panel-header,
     .audit-controls,
     .audit-pagination {
         align-items: stretch;

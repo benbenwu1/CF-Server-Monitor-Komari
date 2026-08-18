@@ -99,6 +99,11 @@
           >▸ {{ trans.auditLog }}</button>
           <button
             class="tab-btn"
+            :class="{ active: activeTab === 'sessions' }"
+            @click="activeTab = 'sessions'"
+          >▸ {{ trans.sessions }}</button>
+          <button
+            class="tab-btn"
             :class="{ active: activeTab === 'themeStore' }"
             @click="activeTab = 'themeStore'"
           >▸ {{ trans.themeStore }}</button>
@@ -173,6 +178,18 @@
           @refresh="loadAuditEvents(auditPagination.page)"
           @event-type-change="handleAuditEventTypeChange"
           @page-change="loadAuditEvents"
+        />
+
+        <SessionPanel
+          :trans="trans"
+          :active-tab="activeTab"
+          :sessions="adminSessions"
+          :loading="sessionLoading"
+          :refreshing="sessionRefreshing"
+          :revoking-session-id="sessionRevokingId"
+          @refresh-list="loadAdminSessions"
+          @refresh-current="refreshCurrentSession"
+          @revoke="revokeAdminSessionById"
         />
 
         <ThemeStorePanel
@@ -573,11 +590,12 @@ import ServerTable from './components/ServerTable.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
 import AuditPanel from './components/AuditPanel.vue'
+import SessionPanel from './components/SessionPanel.vue'
 import ThemeStorePanel from './components/ThemeStorePanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'
 import CopyCommandModal from './components/CopyCommandModal.vue'
-import { adminApi, login, logout as apiLogout, upgradeDatabase, clearHistory, getApiBases, fetchConfig } from '../../utils/api'
+import { adminApi, login, logout as apiLogout, setAuthToken, upgradeDatabase, clearHistory, getApiBases, fetchConfig } from '../../utils/api'
 import { hasMultipleApiBases } from '../../utils/config.js'
 import { t, useTranslation } from '../../utils/i18n'
 import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
@@ -589,6 +607,7 @@ import { useTurnstile } from './composables/useTurnstile'
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
 import { getCloudflareFreeDailyQuotas } from '../../utils/cloudflareQuotas.js'
 import { buildAuditListRequest, normalizeAuditPage } from '../../utils/audit.js'
+import { normalizeAdminSessions } from '../../utils/session.js'
 
 const trans = useTranslation()
 const cloudflareFreeQuotas = getCloudflareFreeDailyQuotas()
@@ -988,6 +1007,11 @@ const auditPagination = ref({ page: 1, page_size: 20, total: 0, total_pages: 0 }
 const auditEventType = ref('')
 const auditLoading = ref(false)
 let auditRequestSequence = 0
+const adminSessions = ref([])
+const sessionLoading = ref(false)
+const sessionRefreshing = ref(false)
+const sessionRevokingId = ref('')
+let sessionRequestSequence = 0
 
 const saveResult = ref(null)
 
@@ -1140,6 +1164,10 @@ const handleLogin = async () => {
 
 const logout = async () => {
   try {
+    await adminApiForSite({ action: 'session_logout' })
+  } catch (_) {
+  }
+  try {
     await adminApiForSite({ action: 'clear_theme_preview_auth' })
   } catch (_) {
   }
@@ -1196,6 +1224,11 @@ const resetAdminContext = () => {
   auditEvents.value = []
   auditPagination.value = { page: 1, page_size: 20, total: 0, total_pages: 0 }
   auditLoading.value = false
+  sessionRequestSequence += 1
+  adminSessions.value = []
+  sessionLoading.value = false
+  sessionRefreshing.value = false
+  sessionRevokingId.value = ''
   selectedServers.value = []
   showEditModal.value = false
   showDeleteModal.value = false
@@ -1214,6 +1247,7 @@ const switchAdminSite = async () => {
       loadLatestAgentVersion()
     ]
     if (activeTab.value === 'audit') loaders.push(loadAuditEvents(1))
+    if (activeTab.value === 'sessions') loaders.push(loadAdminSessions())
     await Promise.all(loaders)
   } finally {
     adminSiteLoading.value = false
@@ -2061,8 +2095,57 @@ const handleAuditEventTypeChange = async (eventType) => {
   await loadAuditEvents(1)
 }
 
+const loadAdminSessions = async () => {
+  const requestSequence = ++sessionRequestSequence
+  sessionLoading.value = true
+  try {
+    const result = await adminApiForSite({ action: 'session_list' })
+    if (requestSequence !== sessionRequestSequence) return
+    adminSessions.value = result.error ? [] : normalizeAdminSessions(result.data)
+  } catch (error) {
+    if (requestSequence === sessionRequestSequence) {
+      adminSessions.value = []
+      console.error('[ERROR] Load admin sessions failed:', error)
+    }
+  } finally {
+    if (requestSequence === sessionRequestSequence) {
+      sessionLoading.value = false
+    }
+  }
+}
+
+const refreshCurrentSession = async () => {
+  if (sessionRefreshing.value) return
+  sessionRefreshing.value = true
+  try {
+    const result = await adminApiForSite({ action: 'session_refresh' })
+    if (!result.error && setAuthToken(result.data?.token)) {
+      await loadAdminSessions()
+    }
+  } catch (error) {
+    console.error('[ERROR] Refresh admin session failed:', error)
+  } finally {
+    sessionRefreshing.value = false
+  }
+}
+
+const revokeAdminSessionById = async (sessionId) => {
+  if (!sessionId || sessionRevokingId.value) return
+  if (!window.confirm(trans.value.sessionRevokeConfirm)) return
+  sessionRevokingId.value = sessionId
+  try {
+    const result = await adminApiForSite({ action: 'session_revoke', session_id: sessionId })
+    if (!result.error) await loadAdminSessions()
+  } catch (error) {
+    console.error('[ERROR] Revoke admin session failed:', error)
+  } finally {
+    sessionRevokingId.value = ''
+  }
+}
+
 watch(activeTab, (tab) => {
   if (tab === 'audit') void loadAuditEvents(1)
+  if (tab === 'sessions') void loadAdminSessions()
 })
 
 watch(() => route.query.apiIndex, async (value) => {

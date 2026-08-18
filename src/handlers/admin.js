@@ -9,7 +9,7 @@ import { addServerColumns } from '../database/updateDatabase.js';
 import { clearResourceAlertState, sendNotification } from '../services/notification.js';
 import { listAuditEvents, recordAuditEvent } from '../services/audit.js';
 import { listNotificationDeliveries } from '../services/notificationDelivery.js';
-import { createAdminSession, listAdminSessions, revokeAdminSession } from '../services/adminSession.js';
+import { createAdminSession, listAdminSessions, refreshAdminSession, revokeAdminSession, revokeCurrentAdminSession } from '../services/adminSession.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
@@ -599,6 +599,46 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       return createSuccessResponse({
         success: true,
         sessions
+      });
+    }
+    else if (data.action === 'session_logout') {
+      const revoked = await revokeCurrentAdminSession(env.DB, authContext.sessionId);
+      if (!revoked) {
+        return createBadRequestResponse('session_not_active');
+      }
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.session.logout',
+        targetType: 'admin_session',
+        targetId: authContext.sessionId
+      });
+      return createSuccessResponse({
+        success: true,
+        revoked: true
+      });
+    }
+    else if (data.action === 'session_refresh') {
+      const replacement = await refreshAdminSession(
+        env.DB,
+        authContext.sessionId,
+        request,
+        session => generateToken(env, sys, {
+          sessionId: session.id,
+          issuedAt: session.issued_at,
+          expiresAt: session.expires_at
+        })
+      );
+      if (!replacement) {
+        return createBadRequestResponse('session_not_active');
+      }
+      await recordAdminAuditEvent(env.DB, request, {
+        eventType: 'admin.session.refresh',
+        targetType: 'admin_session',
+        targetId: replacement.id
+      });
+      return createSuccessResponse({
+        success: true,
+        token: replacement.token,
+        expires_at: replacement.expires_at
       });
     }
     else if (data.action === 'session_revoke') {

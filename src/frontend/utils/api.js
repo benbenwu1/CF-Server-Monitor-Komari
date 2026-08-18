@@ -357,6 +357,13 @@ export const login = async (username, password, turnstileToken = '', apiIndex = 
   return result
 }
 
+export const setAuthToken = (token) => {
+  const normalized = String(token || '').trim()
+  if (!normalized) return false
+  localStorage.setItem('jwt_token', normalized)
+  return true
+}
+
 export const logout = () => {
   localStorage.removeItem('jwt_token')
 }

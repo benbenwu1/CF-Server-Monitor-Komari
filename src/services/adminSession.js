@@ -167,6 +167,85 @@ export async function revokeAdminSession(db, sessionId, currentSessionId, now = 
   };
 }
 
+export async function revokeCurrentAdminSession(db, currentSessionId, now = Date.now()) {
+  if (!currentSessionId) return false;
+  const result = await db.prepare(`
+    UPDATE admin_sessions
+    SET revoked_at = ?
+    WHERE id = ?
+      AND revoked_at IS NULL
+      AND expires_at > ?
+  `).bind(now, currentSessionId, now).run();
+  return Number(result?.meta?.changes || 0) > 0;
+}
+
+export async function refreshAdminSession(db, currentSessionId, request, issueToken, now = Date.now()) {
+  if (!currentSessionId || typeof issueToken !== 'function') return null;
+
+  const replacement = {
+    id: crypto.randomUUID(),
+    issued_at: now,
+    expires_at: now + ADMIN_SESSION_TTL_MS
+  };
+  const token = await issueToken(replacement);
+  const metadata = getRequestMetadata(request);
+  const results = await db.batch([
+    db.prepare(`
+      INSERT INTO admin_sessions (
+        id,
+        subject,
+        auth_method,
+        first_ip,
+        last_ip,
+        user_agent,
+        created_at,
+        last_seen_at,
+        expires_at,
+        revoked_at
+      )
+      SELECT
+        ?,
+        subject,
+        auth_method,
+        first_ip,
+        COALESCE(?, last_ip),
+        COALESCE(?, user_agent),
+        created_at,
+        ?,
+        ?,
+        NULL
+      FROM admin_sessions
+      WHERE id = ?
+        AND revoked_at IS NULL
+        AND expires_at > ?
+    `).bind(
+      replacement.id,
+      metadata.ipAddress,
+      metadata.userAgent,
+      now,
+      replacement.expires_at,
+      currentSessionId,
+      now
+    ),
+    db.prepare(`
+      UPDATE admin_sessions
+      SET revoked_at = ?
+      WHERE id = ?
+        AND revoked_at IS NULL
+        AND expires_at > ?
+    `).bind(now, currentSessionId, now)
+  ]);
+
+  const inserted = Number(results?.[0]?.meta?.changes || 0) > 0;
+  const revoked = Number(results?.[1]?.meta?.changes || 0) > 0;
+  if (!inserted || !revoked) return null;
+
+  return {
+    ...replacement,
+    token
+  };
+}
+
 export async function cleanupAdminSessions(db, now = Date.now()) {
   const cutoff = now - ADMIN_SESSION_RETENTION_MS;
   const result = await db.prepare(`
