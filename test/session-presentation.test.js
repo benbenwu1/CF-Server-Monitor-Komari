@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeAdminSessions } from '../src/frontend/utils/session.js';
+import {
+  normalizeAdminSessions,
+  refreshSessionTokenForSite,
+  revokeCurrentSessionForLogout
+} from '../src/frontend/utils/session.js';
 
 test('session presentation keeps only bounded device metadata from the admin response', () => {
   assert.deepEqual(
@@ -46,4 +50,62 @@ test('session presentation keeps only bounded device metadata from the admin res
     online: false
   }]);
   assert.deepEqual(normalizeAdminSessions(null), []);
+});
+
+test('logout only completes locally after the server confirms current-session revocation', async () => {
+  assert.equal(
+    await revokeCurrentSessionForLogout(async () => ({
+      error: false,
+      data: { success: true, revoked: true }
+    })),
+    true
+  );
+  assert.equal(
+    await revokeCurrentSessionForLogout(async () => ({
+      error: 'temporary_failure',
+      data: null
+    })),
+    false
+  );
+  assert.equal(
+    await revokeCurrentSessionForLogout(async () => {
+      throw new Error('network unavailable');
+    }),
+    false
+  );
+});
+
+test('refresh never installs a token returned for a site that is no longer selected', async () => {
+  const storedTokens = [];
+  const staleResult = await refreshSessionTokenForSite({
+    apiIndex: 0,
+    requestRefresh: async apiIndex => ({
+      error: false,
+      data: { token: `site-${apiIndex}-replacement` }
+    }),
+    isCurrentSite: apiIndex => apiIndex === 1,
+    storeToken: token => {
+      storedTokens.push(token);
+      return true;
+    }
+  });
+
+  assert.deepEqual(staleResult, { applied: false, stale: true });
+  assert.deepEqual(storedTokens, []);
+
+  const currentResult = await refreshSessionTokenForSite({
+    apiIndex: 1,
+    requestRefresh: async () => ({
+      error: false,
+      data: { token: 'current-site-replacement' }
+    }),
+    isCurrentSite: apiIndex => apiIndex === 1,
+    storeToken: token => {
+      storedTokens.push(token);
+      return true;
+    }
+  });
+
+  assert.deepEqual(currentResult, { applied: true, stale: false });
+  assert.deepEqual(storedTokens, ['current-site-replacement']);
 });

@@ -1,4 +1,5 @@
-import { getApiBases } from './config'
+import { getApiBases } from './config.js'
+import { readAdminToken, removeAdminToken } from './adminToken.js'
 
 const DEFAULT_ERROR_MESSAGES = {
   401: 'Unauthorized',
@@ -35,7 +36,7 @@ const createHeaders = (includeAuth = true, includeTurnstile = true, baseUrl = nu
   }
   
   if (includeAuth) {
-    const token = localStorage.getItem('jwt_token')
+    const token = readAdminToken(localStorage, baseUrl || getApiBases()[0])
     if (token) {
       headers['Authorization'] = 'Bearer ' + token
     }
@@ -62,7 +63,7 @@ const handleResponse = async (res, options = {}) => {
   const { autoRedirect = true, baseUrl = null } = options
   
   if (res.status === 401) {
-    localStorage.removeItem('jwt_token')
+    removeAdminToken(localStorage, baseUrl || getApiBases()[0])
     if (autoRedirect) {
       redirectToAdminLogin()
     }
@@ -229,8 +230,10 @@ export const http = {
   }
 }
 
-export const isAdminLoggedIn = () => {
-  return !!localStorage.getItem('jwt_token')
+export const isAdminLoggedIn = (apiIndex = 0) => {
+  const bases = getApiBases()
+  const baseUrl = bases[apiIndex] || bases[0]
+  return !!readAdminToken(localStorage, baseUrl)
 }
 
 export default http

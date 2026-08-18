@@ -25,3 +25,37 @@ export function normalizeAdminSessions(payload) {
       online: session.online === true || session.online === 1
     }))
 }
+
+export async function revokeCurrentSessionForLogout(requestLogout) {
+  if (typeof requestLogout !== 'function') return false
+  try {
+    const result = await requestLogout()
+    return !result?.error && result?.data?.success === true && result?.data?.revoked === true
+  } catch (_) {
+    return false
+  }
+}
+
+export async function refreshSessionTokenForSite({
+  apiIndex,
+  requestRefresh,
+  isCurrentSite,
+  storeToken
+} = {}) {
+  if (
+    typeof requestRefresh !== 'function' ||
+    typeof isCurrentSite !== 'function' ||
+    typeof storeToken !== 'function'
+  ) {
+    return { applied: false, stale: false }
+  }
+
+  const result = await requestRefresh(apiIndex)
+  if (!isCurrentSite(apiIndex)) {
+    return { applied: false, stale: true }
+  }
+  if (result?.error || !storeToken(result?.data?.token)) {
+    return { applied: false, stale: false }
+  }
+  return { applied: true, stale: false }
+}

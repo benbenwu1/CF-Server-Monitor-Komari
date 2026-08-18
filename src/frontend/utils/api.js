@@ -1,5 +1,6 @@
 import { http, isAdminLoggedIn } from './http'
 import { getApiBases, getWsBase, hasMultipleApiBases, getTitle } from './config'
+import { readAdminToken, removeAdminToken, writeAdminToken } from './adminToken.js'
 import { DEFAULT_SITE_TITLE } from './constants'
 import { ref } from 'vue'
 import { normalizeTimestamp } from './time.js'
@@ -352,20 +353,28 @@ export const login = async (username, password, turnstileToken = '', apiIndex = 
   const result = await http.postByIndex('/admin/api', { action: 'login', username, password }, apiIndex, { autoRedirect: false })
   
   if (!result.error && result.data && result.data.token) {
-    localStorage.setItem('jwt_token', result.data.token)
+    if (!setAuthToken(result.data.token, apiIndex)) {
+      return { error: 'token_storage_failed', status: 0 }
+    }
   }
   return result
 }
 
-export const setAuthToken = (token) => {
-  const normalized = String(token || '').trim()
-  if (!normalized) return false
-  localStorage.setItem('jwt_token', normalized)
-  return true
+const getApiBaseForIndex = (apiIndex = 0) => {
+  const bases = getApiBases()
+  return bases[apiIndex] || bases[0]
 }
 
-export const logout = () => {
-  localStorage.removeItem('jwt_token')
+export const getAuthToken = (apiIndex = 0, options = {}) => {
+  return readAdminToken(localStorage, getApiBaseForIndex(apiIndex), options)
+}
+
+export const setAuthToken = (token, apiIndex = 0) => {
+  return writeAdminToken(localStorage, getApiBaseForIndex(apiIndex), token)
+}
+
+export const logout = (apiIndex = 0) => {
+  removeAdminToken(localStorage, getApiBaseForIndex(apiIndex))
 }
 
 export const fetchConfig = async (apiIndex = 0) => {

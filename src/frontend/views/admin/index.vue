@@ -40,7 +40,7 @@
               v-model.number="selectedApiIndex"
               class="form-select admin-site-select"
               :title="trans.apiEndpoint"
-              :disabled="adminSiteLoading"
+              :disabled="adminSiteLoading || sessionRefreshing || !!sessionRevokingId"
               @change="handleAdminApiIndexChange"
             >
               <option
@@ -595,7 +595,7 @@ import ThemeStorePanel from './components/ThemeStorePanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'
 import CopyCommandModal from './components/CopyCommandModal.vue'
-import { adminApi, login, logout as apiLogout, setAuthToken, upgradeDatabase, clearHistory, getApiBases, fetchConfig } from '../../utils/api'
+import { adminApi, getAuthToken, login, logout as apiLogout, setAuthToken, upgradeDatabase, clearHistory, getApiBases, fetchConfig } from '../../utils/api'
 import { hasMultipleApiBases } from '../../utils/config.js'
 import { t, useTranslation } from '../../utils/i18n'
 import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
@@ -607,7 +607,7 @@ import { useTurnstile } from './composables/useTurnstile'
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
 import { getCloudflareFreeDailyQuotas } from '../../utils/cloudflareQuotas.js'
 import { buildAuditListRequest, normalizeAuditPage } from '../../utils/audit.js'
-import { normalizeAdminSessions } from '../../utils/session.js'
+import { normalizeAdminSessions, refreshSessionTokenForSite, revokeCurrentSessionForLogout } from '../../utils/session.js'
 
 const trans = useTranslation()
 const cloudflareFreeQuotas = getCloudflareFreeDailyQuotas()
@@ -1012,6 +1012,7 @@ const sessionLoading = ref(false)
 const sessionRefreshing = ref(false)
 const sessionRevokingId = ref('')
 let sessionRequestSequence = 0
+let sessionMutationSequence = 0
 
 const saveResult = ref(null)
 
@@ -1163,15 +1164,18 @@ const handleLogin = async () => {
 }
 
 const logout = async () => {
-  try {
-    await adminApiForSite({ action: 'session_logout' })
-  } catch (_) {
+  const serverRevoked = await revokeCurrentSessionForLogout(
+    () => adminApiForSite({ action: 'session_logout' })
+  )
+  if (!serverRevoked) {
+    window.alert(trans.value.sessionLogoutFailed)
+    return
   }
   try {
     await adminApiForSite({ action: 'clear_theme_preview_auth' })
   } catch (_) {
   }
-  apiLogout()
+  apiLogout(selectedApiIndex.value)
   isLoggedIn.value = false
   latestAgentVersion.value = ''
   clearTurnstile()
@@ -1180,7 +1184,7 @@ const logout = async () => {
 }
 
 const checkLoginStatus = () => {
-  const token = localStorage.getItem('jwt_token')
+  const token = getAuthToken(selectedApiIndex.value, { migrateLegacy: true })
   return !!token
 }
 
@@ -1225,6 +1229,7 @@ const resetAdminContext = () => {
   auditPagination.value = { page: 1, page_size: 20, total: 0, total_pages: 0 }
   auditLoading.value = false
   sessionRequestSequence += 1
+  sessionMutationSequence += 1
   adminSessions.value = []
   sessionLoading.value = false
   sessionRefreshing.value = false
@@ -2116,30 +2121,51 @@ const loadAdminSessions = async () => {
 
 const refreshCurrentSession = async () => {
   if (sessionRefreshing.value) return
+  const apiIndex = selectedApiIndex.value
+  const mutationSequence = ++sessionMutationSequence
   sessionRefreshing.value = true
   try {
-    const result = await adminApiForSite({ action: 'session_refresh' })
-    if (!result.error && setAuthToken(result.data?.token)) {
+    const result = await refreshSessionTokenForSite({
+      apiIndex,
+      requestRefresh: index => adminApi({ action: 'session_refresh' }, index),
+      isCurrentSite: index => (
+        index === selectedApiIndex.value && mutationSequence === sessionMutationSequence
+      ),
+      storeToken: token => setAuthToken(token, apiIndex)
+    })
+    if (result.applied) {
       await loadAdminSessions()
     }
   } catch (error) {
     console.error('[ERROR] Refresh admin session failed:', error)
   } finally {
-    sessionRefreshing.value = false
+    if (mutationSequence === sessionMutationSequence) {
+      sessionRefreshing.value = false
+    }
   }
 }
 
 const revokeAdminSessionById = async (sessionId) => {
   if (!sessionId || sessionRevokingId.value) return
   if (!window.confirm(trans.value.sessionRevokeConfirm)) return
+  const apiIndex = selectedApiIndex.value
+  const mutationSequence = ++sessionMutationSequence
   sessionRevokingId.value = sessionId
   try {
-    const result = await adminApiForSite({ action: 'session_revoke', session_id: sessionId })
-    if (!result.error) await loadAdminSessions()
+    const result = await adminApi({ action: 'session_revoke', session_id: sessionId }, apiIndex)
+    if (
+      mutationSequence === sessionMutationSequence &&
+      apiIndex === selectedApiIndex.value &&
+      !result.error
+    ) {
+      await loadAdminSessions()
+    }
   } catch (error) {
     console.error('[ERROR] Revoke admin session failed:', error)
   } finally {
-    sessionRevokingId.value = ''
+    if (mutationSequence === sessionMutationSequence) {
+      sessionRevokingId.value = ''
+    }
   }
 }
 
