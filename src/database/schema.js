@@ -7,6 +7,7 @@ import {
   buildSparseHistoryQuery,
   shouldUseSparseHistorySampling
 } from './historySampling.js';
+import { MAX_PING_TASKS, MAX_PING_TASKS_PER_SERVER } from '../services/pingTasks.js';
 
 let dbInitialized = false;
 
@@ -242,6 +243,131 @@ export async function initDatabase(db) {
         attempt_count INTEGER NOT NULL,
         expires_at INTEGER NOT NULL
       )
+    `).run();
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS ping_tasks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        target TEXT NOT NULL,
+        interval_seconds INTEGER NOT NULL,
+        timeout_ms INTEGER NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        apply_to_new_servers INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS ping_task_servers (
+        task_id TEXT NOT NULL,
+        server_id TEXT NOT NULL,
+        PRIMARY KEY (task_id, server_id),
+        FOREIGN KEY (task_id) REFERENCES ping_tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_ping_task_servers_server
+      ON ping_task_servers(server_id, task_id)
+    `).run();
+
+    await db.batch([
+      db.prepare(`
+        CREATE TRIGGER IF NOT EXISTS enforce_ping_task_limit
+        BEFORE INSERT ON ping_tasks
+        WHEN (SELECT COUNT(*) FROM ping_tasks) >= ${MAX_PING_TASKS}
+        BEGIN
+          SELECT RAISE(ABORT, 'ping_task_limit_exceeded');
+        END
+      `),
+      db.prepare(`
+        CREATE TRIGGER IF NOT EXISTS enforce_ping_task_server_limit_on_assignment
+        BEFORE INSERT ON ping_task_servers
+        WHEN NOT EXISTS (
+          SELECT 1 FROM ping_task_servers
+          WHERE task_id = NEW.task_id AND server_id = NEW.server_id
+        )
+        AND (SELECT enabled FROM ping_tasks WHERE id = NEW.task_id) = 1
+        AND (
+          SELECT COUNT(*)
+          FROM ping_task_servers pts
+          JOIN ping_tasks pt ON pt.id = pts.task_id
+          WHERE pts.server_id = NEW.server_id AND pt.enabled = 1
+        ) >= ${MAX_PING_TASKS_PER_SERVER}
+        BEGIN
+          SELECT RAISE(ABORT, 'ping_task_server_limit_exceeded');
+        END
+      `),
+      db.prepare(`
+        CREATE TRIGGER IF NOT EXISTS enforce_ping_task_server_limit_on_enable
+        BEFORE UPDATE OF enabled ON ping_tasks
+        WHEN OLD.enabled != 1 AND NEW.enabled = 1
+        AND EXISTS (
+          SELECT 1
+          FROM ping_task_servers assigned
+          WHERE assigned.task_id = NEW.id
+            AND (
+              SELECT COUNT(*)
+              FROM ping_task_servers pts
+              JOIN ping_tasks pt ON pt.id = pts.task_id
+              WHERE pts.server_id = assigned.server_id
+                AND pt.enabled = 1
+                AND pt.id != NEW.id
+            ) >= ${MAX_PING_TASKS_PER_SERVER}
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'ping_task_server_limit_exceeded');
+        END
+      `),
+      db.prepare(`
+        CREATE TRIGGER IF NOT EXISTS enforce_ping_task_default_limit_on_insert
+        BEFORE INSERT ON ping_tasks
+        WHEN NEW.enabled = 1
+          AND NEW.apply_to_new_servers = 1
+          AND (
+            SELECT COUNT(*)
+            FROM ping_tasks
+            WHERE enabled = 1 AND apply_to_new_servers = 1
+          ) >= ${MAX_PING_TASKS_PER_SERVER}
+        BEGIN
+          SELECT RAISE(ABORT, 'ping_task_server_limit_exceeded');
+        END
+      `),
+      db.prepare(`
+        CREATE TRIGGER IF NOT EXISTS enforce_ping_task_default_limit_on_update
+        BEFORE UPDATE OF enabled, apply_to_new_servers ON ping_tasks
+        WHEN NEW.enabled = 1
+          AND NEW.apply_to_new_servers = 1
+          AND NOT (OLD.enabled = 1 AND OLD.apply_to_new_servers = 1)
+          AND (
+            SELECT COUNT(*)
+            FROM ping_tasks
+            WHERE enabled = 1
+              AND apply_to_new_servers = 1
+              AND id != NEW.id
+          ) >= ${MAX_PING_TASKS_PER_SERVER}
+        BEGIN
+          SELECT RAISE(ABORT, 'ping_task_server_limit_exceeded');
+        END
+      `)
+    ]);
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS ping_task_results (
+        task_id TEXT NOT NULL,
+        server_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        latency_ms INTEGER,
+        success INTEGER NOT NULL,
+        PRIMARY KEY (task_id, server_id, timestamp),
+        FOREIGN KEY (task_id) REFERENCES ping_tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
+      ) WITHOUT ROWID
     `).run();
 
     debug('✅ 数据库初始化完成');

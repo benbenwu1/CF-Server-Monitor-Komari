@@ -12,6 +12,7 @@ import { listNotificationDeliveries } from '../services/notificationDelivery.js'
 import { createAdminSession, createAdminSessionFromOAuthExchange, listAdminSessions, refreshAdminSession, revokeAdminSession, revokeCurrentAdminSession } from '../services/adminSession.js';
 import { beginAdminTotpSetup, confirmAdminTotpSetup, disableAdminTotp, isAdminTotpEnabled, isTotpEncryptionAvailable, requiresTotpForSettings, verifyAdminSecondFactor } from '../services/totp.js';
 import { createGithubOAuthAuthorization, getGithubOAuthBinding, getGithubOAuthExchangeCode, isGithubOAuthAvailable, reserveGithubOAuthStart, unbindGithubOAuthIdentity } from '../services/githubOAuth.js';
+import { createPingTask, defaultPingTaskAssignmentStatement, deletePingTask, listPingTasks, PingTaskError, reorderPingTasks, updatePingTask } from '../services/pingTasks.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
@@ -75,6 +76,15 @@ function createGithubOAuthErrorResponse(code, status = 400, headers = {}) {
       'Cache-Control': 'no-store',
       ...headers
     }
+  });
+}
+
+function createPingTaskErrorResponse(error) {
+  const status = error instanceof PingTaskError ? error.status : 500;
+  const message = error instanceof PingTaskError ? error.message : 'pingTaskOperationFailed';
+  return new Response(JSON.stringify({ error: message, code: status }), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
 }
 
@@ -880,7 +890,78 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       return simpleAuthResponse();
     }
 
-    if (data.action === 'session_list') {
+    if (data.action === 'ping_task_list') {
+      try {
+        return createSuccessResponse({ success: true, tasks: await listPingTasks(env.DB) });
+      } catch (error) {
+        return createPingTaskErrorResponse(error);
+      }
+    }
+    else if (data.action === 'ping_task_create') {
+      try {
+        const result = await createPingTask(env.DB, data);
+        for (const serverId of result.affected_server_ids) {
+          scheduleAgentConfigChanged(env, ctx, serverId);
+        }
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.ping_task.create',
+          targetType: 'ping_task',
+          targetId: result.task.id,
+          detail: { type: result.task.type, server_count: result.task.server_ids.length }
+        });
+        return createSuccessResponse({ success: true, task: result.task });
+      } catch (error) {
+        return createPingTaskErrorResponse(error);
+      }
+    }
+    else if (data.action === 'ping_task_update') {
+      try {
+        const result = await updatePingTask(env.DB, data);
+        for (const serverId of result.affected_server_ids) {
+          scheduleAgentConfigChanged(env, ctx, serverId);
+        }
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.ping_task.update',
+          targetType: 'ping_task',
+          targetId: result.task.id,
+          detail: { type: result.task.type, server_count: result.task.server_ids.length }
+        });
+        return createSuccessResponse({ success: true, task: result.task });
+      } catch (error) {
+        return createPingTaskErrorResponse(error);
+      }
+    }
+    else if (data.action === 'ping_task_delete') {
+      try {
+        const result = await deletePingTask(env.DB, data.id);
+        for (const serverId of result.affected_server_ids) {
+          scheduleAgentConfigChanged(env, ctx, serverId);
+        }
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.ping_task.delete',
+          targetType: 'ping_task',
+          targetId: result.id,
+          detail: { server_count: result.affected_server_ids.length }
+        });
+        return createSuccessResponse({ success: true });
+      } catch (error) {
+        return createPingTaskErrorResponse(error);
+      }
+    }
+    else if (data.action === 'ping_task_reorder') {
+      try {
+        const tasks = await reorderPingTasks(env.DB, data.ids);
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.ping_task.reorder',
+          targetType: 'ping_task_collection',
+          detail: { count: tasks.length }
+        });
+        return createSuccessResponse({ success: true, tasks });
+      } catch (error) {
+        return createPingTaskErrorResponse(error);
+      }
+    }
+    else if (data.action === 'session_list') {
       const sessions = await listAdminSessions(env.DB, authContext.sessionId);
       return createSuccessResponse({
         success: true,
@@ -1551,11 +1632,15 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
 
         const historyPartitionId = await getNextServerHistoryPartitionId(env.DB);
 
-        await env.DB.prepare(`
+        const insertServer = env.DB.prepare(`
           INSERT INTO servers
           (id, name, server_group, region, "interface", sort_order, history_partition_id, timestamp)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(id, name, group, region, networkInterfaces.value, sortOrder, historyPartitionId, Date.now()).run();
+        `).bind(id, name, group, region, networkInterfaces.value, sortOrder, historyPartitionId, Date.now());
+        await env.DB.batch([
+          insertServer,
+          defaultPingTaskAssignmentStatement(env.DB, id)
+        ]);
       } catch (e) {
         return handleServerMutationError(env.DB, e, 'serverAddFailed');
       }
@@ -1828,7 +1913,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         }
 
         try {
-          await env.DB.prepare(`
+          const insertServer = env.DB.prepare(`
             INSERT INTO servers (id, name, server_group, region, tags, note, internal_note, public_note, price, billing_cycle, auto_renewal,
               currency, expire_date,
               traffic_limit, traffic_calc_type, "interface", reset_day, collect_interval, report_interval, connection_mode,
@@ -1868,7 +1953,11 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             server.sort_order ?? 0,
             partitionId,
             server.timestamp || Date.now()
-          ).run();
+          );
+          await env.DB.batch([
+            insertServer,
+            defaultPingTaskAssignmentStatement(env.DB, server.id)
+          ]);
           imported++;
         } catch (e) {
           skipped++;

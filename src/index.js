@@ -6,6 +6,7 @@ import { cleanupAdminSessions } from './services/adminSession.js';
 import { updateDatabase } from './database/updateDatabase.js';
 import { handleAdminAPI } from './handlers/admin.js';
 import { handleGithubOAuthCallback } from './handlers/githubOAuth.js';
+import { handlePingTaskHistory, handlePingTaskList } from './handlers/pingTasks.js';
 import { serveFrontend } from './handlers/frontend.js';
 import { handleUpdate, handleWebSocketUpgrade, handleUpdateWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
@@ -18,6 +19,7 @@ import { verifyTurnstileToken } from './utils/common.js';
 import { getCorsAllowedOrigins, createOptionsResponse, applyCors } from './utils/cors.js';
 import { getRemoteVersion } from './utils/version.js';
 import { cleanupGithubOAuthStartLimits, isGithubOAuthAvailable } from './services/githubOAuth.js';
+import { cleanupPingTaskResults } from './services/pingTasks.js';
 // Durable Objects: 实时指标广播
 // 显式 import + extends，确保 wrangler 静态分析器能在入口文件直接识别此 DO 类
 import { MetricsBroadcaster as _MetricsBroadcaster }
@@ -339,6 +341,16 @@ export default {
         return handleServersAPI(request, env, sys);
       }},
       { method: 'GET', path: '/api/ws', handler: async () => handleWebSocketUpgrade(request, env) },
+      { method: 'GET', path: '/api/ping-tasks', handler: async () => {
+        await initDatabase(env.DB);
+        await ensureSiteSettings();
+        return handlePingTaskList(request, env, sys);
+      }},
+      { method: 'GET', path: '/api/ping-history', handler: async () => {
+        await initDatabase(env.DB);
+        await ensureSiteSettings();
+        return handlePingTaskHistory(request, env, sys);
+      }},
       { method: 'GET', path: '/admin/oauth/github/callback', handler: async () => {
         await initDatabase(env.DB);
         return handleGithubOAuthCallback(request, env);
@@ -436,12 +448,13 @@ export default {
       debug(`[Cron] GitHub OAuth 发起限流记录清理完成: limits=${oauthStartLimitsDeleted}`);
 
       if (hour === 0) {
-        const [auditDeleted, deliveryDeleted, sessionDeleted] = await Promise.all([
+        const [auditDeleted, deliveryDeleted, sessionDeleted, pingResultsDeleted] = await Promise.all([
           cleanupAuditEvents(env.DB),
           cleanupNotificationDeliveries(env.DB),
-          cleanupAdminSessions(env.DB)
+          cleanupAdminSessions(env.DB),
+          cleanupPingTaskResults(env.DB)
         ]);
-        debug(`[Cron] 控制面记录清理完成: audit=${auditDeleted}, deliveries=${deliveryDeleted}, sessions=${sessionDeleted}`);
+        debug(`[Cron] 控制面记录清理完成: audit=${auditDeleted}, deliveries=${deliveryDeleted}, sessions=${sessionDeleted}, ping_results=${pingResultsDeleted}`);
       }
 
       if (day === 0 && hour === 0) {

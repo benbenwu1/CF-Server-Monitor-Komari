@@ -1,13 +1,16 @@
 import { md5Hash } from './common.js';
 import { isWssReportEnabled } from './settings.js';
 
-export const AGENT_CONFIG_SCHEMA_VERSION = 4;
+export const AGENT_CONFIG_SCHEMA_VERSION = 6;
 export const AGENT_CONFIG_LEGACY_SCHEMA_VERSION = 3;
 export const AGENT_CONFIG_SCHEMA_HEADER = 'X-Agent-Config-Schema';
 export const AGENT_CONFIG_MD5_HEADER = 'X-Agent-Config-Md5';
 export const MAX_TRAFFIC_CORRECTION_GB = 1000000;
 export const CONNECTION_MODE_AUTO = 'auto';
 export const CONNECTION_MODE_HTTP = 'http';
+export const DEFAULT_WSS_REPORT_INTERVAL = 2;
+export const AGENT_CONFIG_PING_TASK_SCHEMA_VERSION = 6;
+export const MAX_AGENT_PING_TASKS = 10;
 
 const ALLOWED_COLLECT_INTERVALS = new Set([0, 1, 2, 5, 10]);
 const ALLOWED_REPORT_INTERVALS = new Set([30, 60, 120, 180]);
@@ -207,7 +210,24 @@ export function normalizeTrafficCorrection(value) {
   return isValidTrafficCorrection(value) ? Number(value) : 0;
 }
 
-export function buildAgentConfig(server, settings = null, schemaVersion = AGENT_CONFIG_SCHEMA_VERSION) {
+function normalizeAgentPingTasks(tasks) {
+  if (!Array.isArray(tasks)) return [];
+  return tasks.slice(0, MAX_AGENT_PING_TASKS).map(task => ({
+    id: String(task.id || ''),
+    name: String(task.name || ''),
+    type: String(task.type || ''),
+    target: String(task.target || ''),
+    interval_seconds: Number(task.interval_seconds),
+    timeout_ms: Number(task.timeout_ms)
+  }));
+}
+
+export function buildAgentConfig(
+  server,
+  settings = null,
+  schemaVersion = AGENT_CONFIG_SCHEMA_VERSION,
+  pingTasks = []
+) {
   const version = normalizeSchemaVersion(schemaVersion);
   const collectInterval = storedInteger(server?.collect_interval, ALLOWED_COLLECT_INTERVALS, 0);
   let reportInterval = storedInteger(server?.report_interval, ALLOWED_REPORT_INTERVALS, 60);
@@ -238,9 +258,17 @@ export function buildAgentConfig(server, settings = null, schemaVersion = AGENT_
     schema_version: version
   };
 
-  if (version >= AGENT_CONFIG_SCHEMA_VERSION) {
+  if (version >= 5) {
+    config.wss_report_interval = DEFAULT_WSS_REPORT_INTERVAL;
+  }
+
+  if (version >= 4) {
     const connectionMode = normalizeConnectionMode(server?.connection_mode) || CONNECTION_MODE_AUTO;
     config.connection_mode = isWssReportEnabled(settings) ? connectionMode : CONNECTION_MODE_HTTP;
+  }
+
+  if (version >= AGENT_CONFIG_PING_TASK_SCHEMA_VERSION) {
+    config.ping_tasks = normalizeAgentPingTasks(pingTasks);
   }
 
   return config;
@@ -248,8 +276,11 @@ export function buildAgentConfig(server, settings = null, schemaVersion = AGENT_
 
 export function serializeAgentConfig(config) {
   let serialized = `collect_interval=${config.collect_interval}` +
-    `&report_interval=${config.report_interval}` +
-    `&reset_day=${config.reset_day}` +
+    `&report_interval=${config.report_interval}`;
+  if (Object.prototype.hasOwnProperty.call(config, 'wss_report_interval')) {
+    serialized += `&wss_report_interval=${config.wss_report_interval}`;
+  }
+  serialized += `&reset_day=${config.reset_day}` +
     `&schema_version=${config.schema_version}` +
     `&custom_ct=${config.custom_ct}` +
     `&custom_cu=${config.custom_cu}` +
@@ -258,6 +289,12 @@ export function serializeAgentConfig(config) {
     `&interface=${config.interface}`;
   if (Object.prototype.hasOwnProperty.call(config, 'connection_mode')) {
     serialized += `&connection_mode=${config.connection_mode}`;
+  }
+  if (Object.prototype.hasOwnProperty.call(config, 'ping_tasks')) {
+    const encodedTasks = new URLSearchParams({
+      ping_tasks: JSON.stringify(config.ping_tasks)
+    }).toString();
+    serialized += `&${encodedTasks}`;
   }
   return serialized;
 }
@@ -268,8 +305,13 @@ export function serializeCorrection(correction) {
     `&tx_correction=${correction.tx_correction}`;
 }
 
-export async function describeAgentConfig(server, settings = null, schemaVersion = AGENT_CONFIG_SCHEMA_VERSION) {
-  const config = buildAgentConfig(server, settings, schemaVersion);
+export async function describeAgentConfig(
+  server,
+  settings = null,
+  schemaVersion = AGENT_CONFIG_SCHEMA_VERSION,
+  pingTasks = []
+) {
+  const config = buildAgentConfig(server, settings, schemaVersion, pingTasks);
   const serialized = serializeAgentConfig(config);
   const md5 = await md5Hash(serialized);
 

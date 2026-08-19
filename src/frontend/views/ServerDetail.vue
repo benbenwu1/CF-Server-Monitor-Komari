@@ -115,6 +115,31 @@
     </div>
 
     <div class="charts-container">
+      <div v-show="pingTaskLoading || pingTaskSeries.length > 0" class="chart-card full-width">
+        <div class="chart-card-header">
+          <span class="chart-title">
+            <span class="chart-title-icon">▸</span>
+            {{ trans.pingTasks }}
+          </span>
+          <span v-if="pingTaskLoading" class="chart-subtitle">{{ trans.pingTaskLoading }}</span>
+        </div>
+        <div class="chart-body">
+          <div v-if="pingTaskSeries.length > 0" class="ping-task-detail-summary">
+            <span v-for="series in pingTaskSeries" :key="series.task.id" class="ping-task-detail-stat">
+              <b>{{ series.task.name }}</b>
+              <span>{{ series.task.type.toUpperCase() }}</span>
+              <span>{{ trans.pingTaskSuccessRate }} {{ series.successRate }}%</span>
+              <span>{{ trans.pingTaskAverage }} {{ series.averageLatency }}</span>
+              <span>{{ trans.pingTaskLatest }} {{ series.latestResult }}</span>
+            </span>
+          </div>
+          <div v-if="!pingTaskLoading && pingTaskSeries.length > 0 && !hasPingTaskResults" class="text-muted ping-task-detail-empty">
+            {{ trans.pingTaskNoHistory }}
+          </div>
+          <canvas ref="pingTaskChartRef" v-show="pingTaskSeries.length > 0"></canvas>
+        </div>
+      </div>
+
       <div class="chart-card" :class="{ 'full-width': isChartExpanded('cpu') }">
         <div class="chart-card-header">
           <span class="chart-title">
@@ -350,7 +375,7 @@ import { useRoute, useRouter } from 'vue-router'
 import TerminalHeader from '../components/TerminalHeader.vue'
 import Footer from '../components/Footer.vue'
 import OsIcon from '../components/OsIcon.vue'
-import { fetchServerDetail, fetchAllHistory, fetchConfig, formatBytes, isAdminLoggedIn, createLiveSocket, getFlagRegionCode, isServerOnline } from '../utils/api.js'
+import { fetchServerDetail, fetchAllHistory, fetchPingTaskSeries, fetchConfig, formatBytes, isAdminLoggedIn, createLiveSocket, getFlagRegionCode, isServerOnline } from '../utils/api.js'
 import { getTrafficUsageBytes } from '../composables/useServerCardData'
 import { getPublicAssetUrl } from '../utils/config.js'
 import Chart from 'chart.js/auto'
@@ -581,8 +606,12 @@ const connChartRef = ref(null)
 const pingChartRef = ref(null)
 const lossChartRef = ref(null)
 const loadChartRef = ref(null)
+const pingTaskChartRef = ref(null)
 const historyLoaded = ref(false)
 const hasDiskIoData = ref(false)
+const pingTaskLoading = ref(true)
+const pingTaskSeries = ref([])
+const hasPingTaskResults = computed(() => pingTaskSeries.value.some(series => series.results.length > 0))
 
 const charts = {}
 const chartsReady = ref(false)
@@ -776,8 +805,10 @@ const ds = (label, color, opts = {}) => ({
 })
 
 const GPU_COLORS = ['#ff7b72', '#79c0ff', '#d2a8ff', '#7ee787', '#ffa657', '#ff7b72', '#56d4dd', '#e3b341']
+const PING_TASK_COLORS = ['#00d4aa', '#ffb870', '#4da6ff', '#b392f0', '#f778ba', '#ff7b72', '#56d4dd', '#e3b341', '#79c0ff', '#7ee787']
 
 const CHART_DEFS = [
+  { key: 'pingTasks', ref: () => pingTaskChartRef.value, datasets: [], unit: ' ms', legend: true },
   { key: 'cpu', ref: () => cpuChartRef.value, datasets: [ds('CPU', '#00d4aa', { fill: true })], unit: '%' },
   { key: 'gpu', ref: () => gpuChartRef.value, datasets: [], unit: '%', legend: true },
   { key: 'ram', ref: () => ramChartRef.value, datasets: [ds('Memory', '#b392f0', { fill: true }), ds('Swap', '#ffb870', { fill: true })], unit: '%', legend: true },
@@ -1009,6 +1040,7 @@ const initCharts = () => {
 
   rebuildGpuChartDatasets()
   syncProbeChartVisibility()
+  updatePingTaskChart()
 }
 
 const updateChartsTheme = () => {
@@ -1193,6 +1225,58 @@ const clearDiskIoChart = () => {
   }
   chart.data.labels = []
   chart.update('none')
+}
+
+const formatPingTaskResult = (result) => result?.success
+  ? `${result.latency_ms} ms`
+  : trans.value.timeout
+
+const summarizePingTaskSeries = (series) => {
+  const results = Array.isArray(series.results) ? series.results : []
+  const successful = results.filter(result => result.success && Number.isFinite(Number(result.latency_ms)))
+  const successRate = results.length ? Math.round(successful.length * 100 / results.length) : 0
+  const averageLatency = successful.length
+    ? `${Math.round(successful.reduce((sum, result) => sum + Number(result.latency_ms), 0) / successful.length)} ms`
+    : 'N/A'
+  return {
+    ...series,
+    successRate,
+    averageLatency,
+    latestResult: results.length ? formatPingTaskResult(results.at(-1)) : 'N/A'
+  }
+}
+
+const updatePingTaskChart = () => {
+  const chart = charts.pingTasks
+  if (!chart) return
+  chart.data.datasets = pingTaskSeries.value.map((series, index) => ({
+    ...ds(series.task.name, PING_TASK_COLORS[index % PING_TASK_COLORS.length], { tension: 0.3 }),
+    data: series.results.map(result => createChartPoint(
+      Number(result.timestamp),
+      result.success ? Number(result.latency_ms) : null
+    ))
+  }))
+  syncChartLabels(chart)
+  chart.update('none')
+}
+
+const loadPingTaskHistory = async (hours) => {
+  pingTaskLoading.value = true
+  try {
+    const series = await fetchPingTaskSeries(serverId, hours, apiIndex.value)
+    pingTaskSeries.value = series.map(summarizePingTaskSeries)
+    updatePingTaskChart()
+  } catch (error) {
+    if (error?.status === 401) {
+      showLoginModal.value = true
+    } else {
+      console.error('[ERROR] Load PingTask history failed:', error)
+    }
+    pingTaskSeries.value = []
+    updatePingTaskChart()
+  } finally {
+    pingTaskLoading.value = false
+  }
 }
 
 const loadAllHistory = async (hours) => {
@@ -1599,7 +1683,7 @@ const setTimeRange = (hours) => {
     return
   }
   currentHours.value = hours
-  loadAllHistory(hours)
+  void Promise.all([loadAllHistory(hours), loadPingTaskHistory(hours)])
 }
 
 const goToLogin = () => {
@@ -1618,7 +1702,7 @@ const initChartsOnMount = async () => {
 
   await nextTick()
   
-  const allRefsReady = cpuChartRef.value && gpuChartRef.value && ramChartRef.value && diskChartRef.value && diskIoChartRef.value &&
+  const allRefsReady = pingTaskChartRef.value && cpuChartRef.value && gpuChartRef.value && ramChartRef.value && diskChartRef.value && diskIoChartRef.value &&
     netChartRef.value && procChartRef.value && connChartRef.value && pingChartRef.value && lossChartRef.value && loadChartRef.value
   
   if (allRefsReady) {
@@ -1675,7 +1759,10 @@ const init = async () => {
   ])
   await initChartsOnMount()
 
-  await loadAllHistory(currentHours.value)
+  await Promise.all([
+    loadAllHistory(currentHours.value),
+    loadPingTaskHistory(currentHours.value)
+  ])
   replayLatestReportUpdates(initialData)
 
   liveSocket = createLiveSocket(String(serverId), {
@@ -1687,7 +1774,7 @@ const init = async () => {
   document.addEventListener('visibilitychange', handleVisibility)
 }
 
-watch([cpuChartRef, gpuChartRef, ramChartRef, diskChartRef, diskIoChartRef, netChartRef, procChartRef, connChartRef, pingChartRef, lossChartRef, loadChartRef], () => {
+watch([pingTaskChartRef, cpuChartRef, gpuChartRef, ramChartRef, diskChartRef, diskIoChartRef, netChartRef, procChartRef, connChartRef, pingChartRef, lossChartRef, loadChartRef], () => {
   if (!chartsReady.value) {
     initChartsOnMount()
   }

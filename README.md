@@ -24,7 +24,7 @@
 
 ## 项目简介
 
-CF-Server-Monitor 是一个部署在 Cloudflare Workers 上的服务器监控系统。服务器端安装 Agent 后会单向上报指标到 Worker，数据写入 D1，并通过 Durable Objects + WebSocket 推送到前端，实现免费托管、低维护的实时监控。
+CF-Server-Monitor 是一个部署在 Cloudflare Workers 上的服务器监控系统。服务器端安装 Agent 后会单向上报指标与本地网络探测结果到 Worker，数据写入 D1，并通过 Durable Objects + WebSocket 推送到前端，实现免费托管、低维护的实时监控。
 
 支持主流 Linux 发行版、Alpine Linux、OpenWrt、macOS、群晖 DSM、飞牛 fnOS、Windows 等系统。
 
@@ -67,7 +67,7 @@ CF-Server-Monitor 是一个部署在 Cloudflare Workers 上的服务器监控系
 | --------- | -------------------------------------------------------------------------------- |
 | 实时监控      | CPU、GPU、内存、交换分区、磁盘、磁盘 IO、网络、连接数、进程数、负载、运行时间                                      |
 | 历史数据      | 7 天历史图表、长时段采样、实时网速、月流量统计与校正                                                      |
-| 网络质量      | 电信、联通、移动三网与可选 `BD` 第四自定义节点的延迟、丢包率追踪                                         |
+| 网络质量      | 电信、联通、移动三网与可选 `BD` 延迟/丢包；通用 ICMP/TCP/HTTP PingTask、节点分配、7 天历史与详情图表             |
 | 多视图前台     | 条形图、环形图、表格、地图视图，支持桌面端和移动端                                                        |
 | 管理后台      | 服务器增删改查、拖拽排序、隐藏服务器、导入导出、批量删除、数据库维护                                               |
 | 多系统 Agent | 主流 Linux、Alpine Linux、OpenWrt、群晖 DSM、飞牛 fnOS、FreeBSD、macOS、Windows；默认 Go 版本，保留 Shell/PowerShell 版本 |
@@ -84,7 +84,8 @@ CF-Server-Monitor 是一个部署在 Cloudflare Workers 上的服务器监控系
 
 ```mermaid
 flowchart LR
-  Agent["Server Agent<br/>Go / Shell / PowerShell"] -->|"POST /update"| Worker["Cloudflare Worker"]
+  Agent["Server Agent<br/>Go"] -->|"POST /update or WSS<br/>metrics + ping_results"| Worker["Cloudflare Worker"]
+  Worker -.->|"schema 6 bounded config<br/>no remote commands"| Agent
   Worker --> D1["Cloudflare D1<br/>servers / settings / history"]
   Worker <--> DO["Durable Object<br/>WebSocket broadcast"]
   Worker --> Assets["Vue Dashboard<br/>Admin Panel"]
@@ -97,6 +98,8 @@ flowchart LR
 2. 目标服务器安装 Agent，按上报间隔向 Worker 发送指标。
 3. Worker 校验 `API_SECRET`，写入 D1，并通过 Durable Object 广播实时数据。
 4. 前台大盘、详情页、管理后台和 iOS 小组件读取同一套 API。
+
+通用 PingTask 默认 300 秒执行一次；每台节点最多 10 个启用任务，全站最多 100 个。60 秒最短间隔适合少量关键任务，不适合作为所有任务的默认值：Cloudflare D1 Free 当前每天包含 100,000 行写入，且现有指标历史也会占用该预算。系统不保存 HTTP 响应正文、Header 或 Agent 原始错误。
 
 ## 版本说明
 

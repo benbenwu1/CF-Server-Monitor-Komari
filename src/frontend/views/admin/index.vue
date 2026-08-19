@@ -112,6 +112,11 @@
           >▸ {{ trans.sessions }}</button>
           <button
             class="tab-btn"
+            :class="{ active: activeTab === 'pingTasks' }"
+            @click="activeTab = 'pingTasks'"
+          >▸ {{ trans.pingTasks }}</button>
+          <button
+            class="tab-btn"
             :class="{ active: activeTab === 'themeStore' }"
             @click="activeTab = 'themeStore'"
           >▸ {{ trans.themeStore }}</button>
@@ -222,6 +227,13 @@
             @acknowledge-recovery="totpRecoveryCodes = []"
           />
         </SessionPanel>
+
+        <PingTaskPanel
+          :trans="trans"
+          :active-tab="activeTab"
+          :servers="servers"
+          :selected-api-index="selectedApiIndex"
+        />
 
         <ThemeStorePanel
           :trans="trans"
@@ -624,6 +636,7 @@ import AuditPanel from './components/AuditPanel.vue'
 import SessionPanel from './components/SessionPanel.vue'
 import TotpPanel from './components/TotpPanel.vue'
 import GithubOAuthPanel from './components/GithubOAuthPanel.vue'
+import PingTaskPanel from './components/PingTaskPanel.vue'
 import ThemeStorePanel from './components/ThemeStorePanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'

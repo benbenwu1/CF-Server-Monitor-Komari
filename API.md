@@ -36,6 +36,7 @@
   - [2.5](#25-get-apiws---websocket-实时推送) [`GET /api/ws`](#25-get-apiws---websocket-实时推送) [- WebSocket 实时推送](#25-get-apiws---websocket-实时推送)
   - [2.6](#26-get-theme---获取主题商店数据) [`GET /theme`](#26-get-theme---获取主题商店数据) [- 获取主题商店数据](#26-get-theme---获取主题商店数据)
   - [2.7](#27-前端与主题代理) [前端与主题代理](#27-前端与主题代理)
+  - [2.8](#28-pingtask-公开历史) [PingTask 公开历史](#28-pingtask-公开历史)
 - [3. 管理端 API（鉴权）](#3-管理端-api鉴权)
   - [3.1](#31-post-adminapi---管理操作入口) [`POST /admin/api`](#31-post-adminapi---管理操作入口) [- 管理操作入口](#31-post-adminapi---管理操作入口)
   - [3.2](#32-action-login---登录) [`action: login`](#32-action-login---登录) [- 登录](#32-action-login---登录)
@@ -53,6 +54,7 @@
   - [3.12](#312-action-send_test_notification---发送测试通知) [`action: send_test_notification`](#312-action-send_test_notification---发送测试通知) [- 发送测试通知](#312-action-send_test_notification---发送测试通知)
   - [3.13](#313-action-export_servers---导出服务器) [`action: export_servers`](#313-action-export_servers---导出服务器) [- 导出服务器](#313-action-export_servers---导出服务器)
   - [3.14](#314-action-import_servers---导入服务器) [`action: import_servers`](#314-action-import_servers---导入服务器) [- 导入服务器](#314-action-import_servers---导入服务器)
+  - [3.15](#315-pingtask-管理操作) [PingTask 管理操作](#315-pingtask-管理操作)
 - [4. 系统维护端点](#4-系统维护端点)
   - [4.1](#41-post-updatedatabase---数据库迁移) [`POST /updateDatabase`](#41-post-updatedatabase---数据库迁移) [- 数据库迁移](#41-post-updatedatabase---数据库迁移)
   - [4.2](#42-post-clearhistory---清空历史数据) [`POST /clearHistory`](#42-post-clearhistory---清空历史数据) [- 清空历史数据](#42-post-clearhistory---清空历史数据)
@@ -223,10 +225,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   ```
   Content-Type: application/json
   X-Agent-Version: <探针版本号>
-  X-Agent-Config-Schema: 4
+  X-Agent-Config-Schema: 6
   X-Agent-Config-Md5: <最后成功应用的配置 MD5，首次为 none>
   ```
-  动态配置请求头为新版探针使用的可选字段；当前新 Go Agent 使用 schema `4`。schema `3` 仍按旧兼容配置返回，未携带时保持旧版响应协议。
+  动态配置请求头为新版探针使用的可选字段；当前 PingTask Go Agent 使用 schema `6`。schema `3` 为旧基础配置，schema `4` 增加 `connection_mode`，schema `5` 增加 `wss_report_interval=2`，schema `6` 增加 URL-encoded JSON `ping_tasks`。未携带该 Header 时保持旧版响应协议。
 
   WebSocket 握手只能使用 `GET + Upgrade`，这是 WebSocket 协议限制；后端仍通过同一个 `/update` 路径区分 `POST` 与 `wss`。握手成功后服务端先发送：
 
@@ -298,9 +300,20 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
       "loss_cu": "0",
       "loss_cm": "0",
       "loss_bd": "0"
-    }
+    },
+    "ping_results_batch_id": "18d36f00-18d36f01-1",
+    "ping_results": [
+      {
+        "task_id": "2e7c7b9a-722a-4a20-9280-cf4266f4104d",
+        "timestamp": 1737638340000,
+        "latency_ms": 42,
+        "success": true
+      }
+    ]
   }
   ```
+
+  `ping_results` 可选，单包最多 20 条；新版 Agent 同时发送 1..64 个字母、数字、下划线或连字符组成的 `ping_results_batch_id`。成功结果的 `latency_ms` 为 `0..10000` 的整数；失败结果使用 `success:false` 和 `latency_ms:-1`。Worker 只接受仍启用且已分配给该节点的任务，主键 `(task_id, server_id, timestamp)` 会吸收重传；服务端不接收或保存 HTTP 正文、Header、目标侧错误原文。
 
   新版探针也可以一次上报多个采集样本，后端兼容旧的单条 `metrics` 格式。`samples` 还兼容别名 `batch`；每个元素可直接是指标对象，也可放在 `metrics`、`data` 或 `payload` 中。单次最多保留时间排序后的最后 300 个样本。批量格式示例：
 
@@ -372,10 +385,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 - 新版探针且配置 MD5 不一致，或仍有待确认流量修正：返回 `200 OK`，响应头携带当前
   `X-Agent-Config-Schema` 与 `X-Agent-Config-Md5`，响应体以固定顺序的完整 QueryParam 配置开头：
   ```text
-  collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=&connection_mode=auto
+  collect_interval=0&report_interval=60&wss_report_interval=2&reset_day=1&schema_version=6&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=&connection_mode=auto&ping_tasks=%5B%5D
   ```
   （`Content-Type: application/x-www-form-urlencoded; charset=utf-8`）
-- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-07-26 修订，2026-07-31 更新，2026-08-15 更新**：schema `4` 的 MD5 覆盖规范配置包含 `collect_interval`、`report_interval`、`reset_day`、`schema_version`、`custom_ct`、`custom_cu`、`custom_cm`、`custom_bd`、`interface`、`connection_mode`；schema `3` 兼容响应不包含 `connection_mode`。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
+- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-08-19 更新**：schema `6` 的 MD5 覆盖 `collect_interval`、`report_interval`、`wss_report_interval`、`reset_day`、`schema_version`、`custom_ct`、`custom_cu`、`custom_cm`、`custom_bd`、`interface`、`connection_mode`、`ping_tasks`；旧 schema 只接收其支持的字段。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
 - 探针应用流量修正后，可在下一次 `POST /update` 顶层回传 `rx_correction` / `tx_correction`。值匹配时后端清空待修正字段并直接返回纯文本 `OK`，本次请求不要求 `metrics`。
 - 失败：
   ```json
@@ -392,10 +405,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   - `500 { "error": "WebSocket error", "code": 500 }`：Worker 转发至 DO 失败
 - 上报成功：服务端发送 ack，不关闭连接。
   ```json
-  { "type": "ack", "ts": 1737638343000, "persisted": true, "nextD1WriteAfterMs": 60000, "nextWssReportAfterMs": 60000 }
+  { "type": "ack", "ts": 1737638343000, "persisted": true, "nextD1WriteAfterMs": 60000, "nextWssReportAfterMs": 60000, "ping_results_batch_id": "18d36f00-18d36f01-1", "ping_results_received": 1 }
   ```
-  `persisted` 表示本条消息是否触发 D1 历史写入；`nextD1WriteAfterMs` 是距离下一次允许写入 D1 的最短等待时间。WSS 首条成功指标会立即写入一次 D1，后续按该服务器 `report_interval` 控制写入频率（允许值沿用配置：`30/60/120/180` 秒；异常回退 `60` 秒）。`nextWssReportAfterMs` 是服务端建议的下一次 WSS 上报间隔：有前端实时订阅时约为 `report_interval / 15`；仅资源告警缓存活跃且无前端订阅时至少 `60` 秒；无实时消费者时回退到 `report_interval`，用于降低 idle 状态 DO WebSocket 消息数。
-  新版 WSS Agent 可在握手 URL query 中携带 `config_schema=4` / `config_md5=<md5>`，也兼容握手 Header `X-Agent-Config-Schema: 4` 与 `X-Agent-Config-Md5` 记录当前配置状态；当某次上报消息携带 `config_schema: 4` / `config_md5` 时，ack 会同时返回动态配置协商字段。兼容 schema `3` 的 Agent 仍会收到不含 `connection_mode` 的 schema `3` 配置：
+  `persisted` 表示本条消息是否触发常规指标历史写入；`nextD1WriteAfterMs` 是距离下一次允许写入 D1 的最短等待时间。WSS 首条成功指标会立即写入一次 D1，后续按该服务器 `report_interval` 控制写入频率（允许值沿用配置：`30/60/120/180` 秒；异常回退 `60` 秒）。`nextWssReportAfterMs` 是服务端建议的下一次 WSS 上报间隔：有前端实时订阅时约为 `report_interval / 15`；仅资源告警缓存活跃且无前端订阅时至少 `60` 秒；无实时消费者时回退到 `report_interval`，用于降低 idle 状态 DO WebSocket 消息数。请求包含合法 PingTask 批次 ID 时，服务端在完成验证与 D1 写入尝试后回传相同 `ping_results_batch_id` 和收到的 `ping_results_received` 数量；Agent 只在两者与当前批次匹配时出队，ACK 丢失则重传。
+  新版 WSS Agent 可在握手 URL query 中携带 `config_schema=6` / `config_md5=<md5>`，也兼容握手 Header `X-Agent-Config-Schema: 6` 与 `X-Agent-Config-Md5` 记录当前配置状态；当某次上报消息携带 `config_schema: 6` / `config_md5` 时，ack 会同时返回动态配置协商字段。旧 schema Agent 仍只收到各自支持的字段：
   ```json
   {
     "type": "ack",
@@ -403,22 +416,24 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
     "persisted": false,
     "nextD1WriteAfterMs": 30000,
     "nextWssReportAfterMs": 3000,
-    "config_schema": 4,
+    "config_schema": 6,
     "config_md5": "b4d7c0d...",
     "has_config": true,
-    "body": "collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto",
-    "config_body": "collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto",
+    "body": "collect_interval=0&report_interval=60&wss_report_interval=2&reset_day=1&schema_version=6&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&connection_mode=auto&ping_tasks=%5B%5D",
+    "config_body": "collect_interval=0&report_interval=60&wss_report_interval=2&reset_day=1&schema_version=6&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&connection_mode=auto&ping_tasks=%5B%5D",
     "payload": {
       "collect_interval": 0,
       "report_interval": 60,
       "reset_day": 1,
-      "schema_version": 4,
+      "schema_version": 6,
       "custom_ct": "gd-ct-dualstack.ip.zstaticcdn.com",
       "custom_cu": "gd-cu-dualstack.ip.zstaticcdn.com",
       "custom_cm": "gd-cm-dualstack.ip.zstaticcdn.com",
       "custom_bd": "",
       "interface": "",
       "connection_mode": "auto",
+      "wss_report_interval": 2,
+      "ping_tasks": [],
       "config_md5": "b4d7c0d..."
     }
   }
@@ -995,6 +1010,75 @@ https://github.com/<owner>/<theme-repo>/tree/<commit-or-branch>[/theme-subdir]
 
 ***
 
+### 2.8 PingTask 公开历史
+
+以下接口遵循站点公开性：公开站点允许匿名读取非隐藏节点；私有站点或隐藏节点需要管理员 JWT。匿名请求最多读取 24 小时，48/96/168 小时需要登录。响应永远不包含探测 `target`。
+
+#### `GET /api/ping-tasks`
+
+返回已启用任务及其可见节点分配：
+
+```json
+{
+  "tasks": [
+    {
+      "id": "2e7c7b9a-722a-4a20-9280-cf4266f4104d",
+      "name": "Example HTTPS",
+      "type": "http",
+      "interval_seconds": 300,
+      "timeout_ms": 5000,
+      "sort_order": 0,
+      "server_ids": ["9b2c4d3e-1a2b-4c5d-9e8f-7a6b5c4d3e2f"]
+    }
+  ]
+}
+```
+
+#### `GET /api/ping-history`
+
+单任务查询参数：`task_id`、`server_id`、`hours`。`hours` 只允许 `1/6/12/24/48/96/168`。每个任务最多返回时间范围内最新的 2048 个结果，响应按时间升序排列。
+
+```json
+{
+  "task": {
+    "id": "2e7c7b9a-722a-4a20-9280-cf4266f4104d",
+    "name": "Example HTTPS",
+    "type": "http",
+    "interval_seconds": 300,
+    "timeout_ms": 5000
+  },
+  "results": [
+    { "timestamp": 1737638340000, "latency_ms": 42, "success": true },
+    { "timestamp": 1737638640000, "latency_ms": null, "success": false }
+  ]
+}
+```
+
+省略 `task_id` 时按节点聚合查询：`server_id`、`hours`。一次返回该节点全部已启用任务，节点详情页使用此形式，避免每个任务单独发起 HTTP 请求；每个任务同样最多返回最新 2048 个结果。
+
+```json
+{
+  "series": [
+    {
+      "task": {
+        "id": "2e7c7b9a-722a-4a20-9280-cf4266f4104d",
+        "name": "Example HTTPS",
+        "type": "http",
+        "interval_seconds": 300,
+        "timeout_ms": 5000
+      },
+      "results": [
+        { "timestamp": 1737638340000, "latency_ms": 42, "success": true }
+      ]
+    }
+  ]
+}
+```
+
+结果最多保留 7 天；单序列最多返回 2048 条。失败没有错误原文，`latency_ms` 为 `null`。
+
+***
+
 ## 3. 管理端 API（鉴权）
 
 ### 3.1 `POST /admin/api` - 管理操作入口
@@ -1012,7 +1096,7 @@ https://github.com/<owner>/<theme-repo>/tree/<commit-or-branch>[/theme-subdir]
   ```
 - Body（JSON）：
   ```json
-  { "action": "<one of: login|clear_theme_preview_auth|get_settings|start_theme_preview|list|d1_usage|send_test_notification|save_settings|add|delete|save_order|edit|batch_delete|export_servers|import_servers>", ...payload }
+  { "action": "<one of: login|clear_theme_preview_auth|get_settings|start_theme_preview|list|d1_usage|send_test_notification|save_settings|add|delete|save_order|edit|batch_delete|export_servers|import_servers|ping_task_list|ping_task_create|ping_task_update|ping_task_delete|ping_task_reorder>", ...payload }
   ```
 
 **Turnstile**：
@@ -1550,6 +1634,39 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 
 ***
 
+### 3.15 PingTask 管理操作
+
+所有操作需要管理员 JWT。限制：全站最多 100 个任务；每节点最多 10 个启用任务；间隔 `60..86400` 秒；超时 `500..10000` 毫秒。`apply_to_new_servers` 只影响未来新增或导入的节点，不会自动补选现有节点；全站最多同时存在 10 个“已启用且自动应用到新节点”的任务，停用任务不占启用容量。
+
+任务对象：
+
+```json
+{
+  "id": "2e7c7b9a-722a-4a20-9280-cf4266f4104d",
+  "name": "Example HTTPS",
+  "type": "http",
+  "target": "https://example.com/health",
+  "interval_seconds": 300,
+  "timeout_ms": 5000,
+  "enabled": true,
+  "sort_order": 0,
+  "apply_to_new_servers": true,
+  "server_ids": ["9b2c4d3e-1a2b-4c5d-9e8f-7a6b5c4d3e2f"]
+}
+```
+
+- `ping_task_list`：`{ "action": "ping_task_list" }`，返回 `tasks`。
+- `ping_task_create`：提交上方除 `id/sort_order` 外字段，返回 `task`。
+- `ping_task_update`：提交 `action`、`id` 与需要修改的字段；省略字段保留原值，返回更新后的 `task`。
+- `ping_task_delete`：`{ "action": "ping_task_delete", "id": "..." }`，同时删除分配与 7 天结果历史。
+- `ping_task_reorder`：`{ "action": "ping_task_reorder", "ids": ["...", "..."] }`；数组必须恰好包含当前全部任务且不得重复。
+
+目标格式：ICMP 使用主机名/IP；TCP 使用 `host:port`（IPv6 为 `[addr]:port`）；HTTP 只允许 `http://` 或 `https://`，不允许 URL 用户名/密码。创建、更新或删除会向在线 schema 6 WSS Agent 推送配置变化；HTTP Agent 在后续上报响应中领取。新增节点与默认任务分配使用同一 D1 batch，数据库触发器同时封住任务总量和并发节点容量竞争。
+
+主要错误：`invalidPingTask*` 为 `400`；任务或节点不存在为 `404`；全站/节点容量超限为 `409`。
+
+***
+
 ## 4. 系统维护端点
 
 > 以下端点需 JWT 鉴权（`Authorization: Bearer <token>`），不参与 Turnstile。
@@ -1763,7 +1880,7 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | `pong`   | S → C | 自动响应的精确文本 `{"type":"pong"}`，不带 `ts`   |
 | `batchUpdate` | S → C | `{ ts: number, updates: Array<{ serverId: string, samples: Array<{ ts: number, data: Partial<Server> }> }> }` |
 | `update` | C → S | `/update` WSS 上报可选包装格式：`{ type:"update", id:string, secret:string, payload:{ metrics?:object, samples?:array, batch?:array } }` |
-| `ack` | S → C | `/update` WSS 上报确认：`{ ts:number, persisted?:boolean, nextD1WriteAfterMs?:number, nextWssReportAfterMs?:number, correction?:true, config_schema?:number, config_md5?:string, has_config?:boolean, body?:string, config_body?:string, payload?:object }` |
+| `ack` | S → C | `/update` WSS 上报确认：`{ ts:number, persisted?:boolean, nextD1WriteAfterMs?:number, nextWssReportAfterMs?:number, ping_results_batch_id?:string, ping_results_received?:number, correction?:true, config_schema?:number, config_md5?:string, has_config?:boolean, body?:string, config_body?:string, payload?:object }` |
 | `error` | S → C | `/update` WSS 上报错误：`{ ts:number, error:string, code:number }`；随后服务端通常以 close code `1008` 关闭连接 |
 
 客户端发来的 `pong` 会被静默忽略；它不是服务端定时发送的双向心跳协议。

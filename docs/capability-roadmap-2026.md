@@ -180,15 +180,16 @@
 | D1 → R2 备份 | R2 binding、manifest、恢复校验 | Time Travel 负责短期回滚，R2 负责可下载/跨环境导出 |
 | 周期流量报告 | 查询口径、幂等键、通知 Queue | 独立实现，不复制 Komari 即将废弃的内建模块 |
 
-#### P1 实施状态（2026-08-18）
+#### P1 实施状态（2026-08-19）
 
 | 工作包 | 当前结果 | 下一切片 |
 | --- | --- | --- |
 | Session 管理 | 已完成单管理员 D1 设备会话、JWT `sid` 绑定、按 API base 隔离前端 Token、脱敏列表、最近活动节流、跨设备撤销、refresh 原子轮换、服务端退出、管理界面、立即失效、三类会话审计和 30 天过期记录清理；53 项测试、生产构建与 Wrangler dry-run 通过 | 工作包完成；旧无 `sid` JWT 在升级后需重新登录，旧单值 Token 只迁移到当前选定站点 |
 | TOTP 2FA | 已完成 AES-GCM 加密 secret、RFC 6238 验证、setup/confirm/disable、10 个一次性恢复码、登录/setup 确认/站点公开性等关键设置/停用保护、D1 原子五分钟失败预算、并发 setup 确认 CAS、管理界面和安全审计；初始材料只显示一次 | 工作包完成；启用前必须单独配置并妥善备份 Cloudflare Secret `TOTP_ENCRYPTION_KEY` |
 | GitHub OAuth | 已完成 GitHub 单 Provider：固定 exact callback、state 哈希与原子单次消费、S256 PKCE、numeric ID 绑定、60 秒交换码、TOTP/恢复码登录、绑定/解绑、OAuth Session 撤销、管理界面和多 API base Token 隔离；GitHub token 不落库 | 工作包完成；部署前创建专用 OAuth App、关闭 wildcard，并分别配置公开 Client ID、固定 callback URL 与 Worker Secret；密码登录永久保留 |
+| 任意 PingTask | 已完成 ICMP/TCP/HTTP CRUD、排序、节点分配、新节点默认应用、schema 6 配置、Agent 本地有界调度、带批次 ACK 的 HTTP/WSS 结果回传、7 天 D1 历史、每任务最新 2048 点读取上限、管理摘要和节点详情聚合图表；不保存正文/Header/原始错误 | 工作包完成；71 项 Worker Node 测试与 119 项 Agent Go 测试、race、vet、生产构建、依赖审计和 Wrangler dry-run 均通过，尚未部署。默认 300 秒；60 秒在 10 任务时每节点约产生 14,400 条结果写/日，必须结合 D1 Free 10 万行写/日与原指标写入评估 |
 
-Session、TOTP 与 GitHub OAuth 已形成独立 P1 检查点但未部署；generic OIDC 不在当前 P1 重复实现，下一工作包为 ICMP/TCP/HTTP PingTask。
+Session、TOTP、GitHub OAuth 与 PingTask 已形成独立 P1 检查点但未部署；generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
 
 ### P2：实验或额度敏感
 

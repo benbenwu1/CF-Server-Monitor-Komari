@@ -19,6 +19,7 @@ import { isWssReportEnabled, loadSiteSettings } from '../utils/settings.js';
 import {
   AGENT_CONFIG_MD5_HEADER,
   AGENT_CONFIG_LEGACY_SCHEMA_VERSION,
+  AGENT_CONFIG_PING_TASK_SCHEMA_VERSION,
   AGENT_CONFIG_SCHEMA_HEADER,
   AGENT_CONFIG_SCHEMA_VERSION,
   describeAgentConfig,
@@ -35,6 +36,7 @@ import {
   normalizeMetricSamples,
   toBroadcastSamples
 } from '../handlers/update.js';
+import { listAgentPingTasks, PingTaskError, savePingTaskResults } from '../services/pingTasks.js';
 
 const MAX_SUBSCRIBE_IDS = 500;
 const MAX_SERVER_ID_LENGTH = 64;
@@ -845,12 +847,15 @@ export class MetricsBroadcaster {
   }
 
   async _loadAgentConfigDescriptor(serverId, forceRefresh = false, schemaVersion = AGENT_CONFIG_SCHEMA_VERSION) {
-    const [serverDetail, settings] = await Promise.all([
+    const [serverDetail, settings, pingTasks] = await Promise.all([
       this._getAgentServerDetail(serverId, forceRefresh),
-      loadSiteSettings(this.env.DB, { forceRefresh })
+      loadSiteSettings(this.env.DB, { forceRefresh }),
+      schemaVersion >= AGENT_CONFIG_PING_TASK_SCHEMA_VERSION
+        ? listAgentPingTasks(this.env.DB, serverId)
+        : Promise.resolve([])
     ]);
     if (!serverDetail) return null;
-    return describeAgentConfig(serverDetail, settings, schemaVersion);
+    return describeAgentConfig(serverDetail, settings, schemaVersion, pingTasks);
   }
 
   _buildAgentConfigFrame(descriptor) {
@@ -1279,6 +1284,29 @@ export class MetricsBroadcaster {
       return;
     }
 
+    let pingResultAck = null;
+    try {
+      const pingResultSave = await savePingTaskResults(
+        this.env.DB,
+        context.serverId,
+        data.ping_results,
+        Date.now(),
+        data.ping_results_batch_id
+      );
+      if (pingResultSave.batch_id) {
+        pingResultAck = {
+          ping_results_batch_id: pingResultSave.batch_id,
+          ping_results_received: pingResultSave.received
+        };
+      }
+    } catch (error) {
+      if (error instanceof PingTaskError) {
+        this._closeWsWithError(ws, error.message, 400);
+        return;
+      }
+      throw error;
+    }
+
     const latestSample = samples[samples.length - 1];
     const latestMetrics = getReportMetrics(data, latestSample);
     const historyAggregate = collectHistoryMetricAggregates(samples);
@@ -1320,6 +1348,7 @@ export class MetricsBroadcaster {
       persisted: persisted.persisted,
       nextD1WriteAfterMs: persisted.nextD1WriteAfterMs,
       nextWssReportAfterMs,
+      ...(pingResultAck || {}),
       ...(configAck || {})
     });
   }

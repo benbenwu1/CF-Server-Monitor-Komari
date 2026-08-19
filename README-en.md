@@ -57,7 +57,7 @@ Compared with traditional controller-style monitoring tools, CF-Server-Monitor i
 - Free hosting: the dashboard, API, database, and realtime push run on Cloudflare and are designed around free-tier limits; the default 60-second reporting interval supports roughly 60 servers, and changing it to 120 seconds can theoretically double that capacity.
 - Safer one-way reporting: no WebSSH, no remote command delivery, and no controller channel; the Agent only reports metrics to the Worker.
 - Practical feature coverage: realtime metrics, history charts, maps, offline notifications, resource alerts, expiration reminders, theme store, multi-language UI, and mobile support are built in.
-- Dynamic Agent config delivery: ping nodes, collect interval, report interval, network interfaces, traffic reset day, upload/download traffic correction, and similar parameters can be changed from the admin panel and picked up by the Agent later; Worker URL, `API_SECRET`, and the auto-update switch require running the install command again.
+- Dynamic Agent config delivery: ping nodes, bounded ICMP/TCP/HTTP PingTasks, collect interval, report interval, network interfaces, traffic reset day, upload/download traffic correction, and similar parameters can be changed from the admin panel and picked up by the Agent later; Worker URL, `API_SECRET`, and the auto-update switch require running the install command again.
 - Non-root installation: Linux systems with `systemd --user` can run the Agent as a regular user, with files stored under `~/.cf-probe/`.
 - Clock-tolerant reporting: the Go Agent uses the Worker's HTTP `Date` response header to calibrate sample timestamps and `boot_time`, reducing the impact of wrong local server time on history charts; it does not change the system clock.
 
@@ -67,7 +67,7 @@ Compared with traditional controller-style monitoring tools, CF-Server-Monitor i
 | --- | --- |
 | Realtime monitoring | CPU, GPU, memory, swap, disk, disk IO, network, connections, process count, load average, uptime |
 | History | 7-day charts, long-range sampling, realtime network speed, monthly traffic and correction |
-| Network quality | Latency and packet loss tracking for CT, CU, CM, and an optional custom `BD` endpoint |
+| Network quality | Latency and packet loss tracking for CT, CU, CM, and an optional custom `BD` endpoint; bounded ICMP/TCP/HTTP PingTasks with per-server assignment, 7-day history, and detail charts |
 | Dashboard views | Bar chart, ring chart, table, and map views for desktop and mobile |
 | Admin panel | Server CRUD, drag sorting, hidden servers, import/export, batch delete, database maintenance |
 | Cross-platform Agent | Mainstream Linux, Alpine Linux, OpenWrt, Synology DSM, Feiniu fnOS, FreeBSD, macOS, Windows; Go Agent by default, Shell/PowerShell still available |
@@ -85,6 +85,7 @@ Compared with traditional controller-style monitoring tools, CF-Server-Monitor i
 ```mermaid
 flowchart LR
   Agent["Server Agent<br/>Go / Shell / PowerShell"] -->|"POST /update"| Worker["Cloudflare Worker"]
+  Worker -.->|"schema 6 bounded config<br/>no remote commands"| Agent
   Worker --> D1["Cloudflare D1<br/>servers / settings / history"]
   Worker <--> DO["Durable Object<br/>WebSocket broadcast"]
   Worker --> Assets["Vue Dashboard<br/>Admin Panel"]
@@ -526,6 +527,8 @@ Due to the current Cloudflare version issue, you may need to temporarily modify 
 ### Is the D1 free quota enough?
 
 The default 60-second reporting interval is designed for roughly 60+ servers. Increasing the interval to 120 seconds reduces writes further. Reads mainly come from frontend visits and history queries; caching, sampling, and login restrictions reduce usage. Always check the current Cloudflare dashboard for actual quota numbers.
+
+PingTasks default to a 300-second interval. Each server can have at most 10 enabled tasks and the site can have at most 100 tasks. The 60-second minimum should be reserved for a small number of critical checks: 10 tasks at that interval produce about 14,400 result rows per server per day, in addition to the existing metrics history writes. The system stores no HTTP response body, headers, or raw Agent-side probe errors.
 
 ### Background image does not show
 

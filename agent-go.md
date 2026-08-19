@@ -212,10 +212,10 @@ WSS 可用且 `CONNECTION_MODE=auto` 时，Agent 默认按 `REPORT_INTERVAL / 15
 服务端 ack 示例：
 
 ```json
-{ "type": "ack", "ts": 1720000000000, "persisted": false, "nextD1WriteAfterMs": 30000, "nextWssReportAfterMs": 60000 }
+{ "type": "ack", "ts": 1720000000000, "persisted": false, "nextD1WriteAfterMs": 30000, "nextWssReportAfterMs": 60000, "ping_results_batch_id": "18d36f00-18d36f01-1", "ping_results_received": 1 }
 ```
 
-收到 ack 后 Agent 继续下一轮采集/发送；`persisted=false` 表示服务端未执行持久化写入，Agent 不会因此重试。服务端 error 示例：
+收到 ack 后 Agent 继续下一轮采集/发送；`persisted=false` 表示本次没有写入常规指标历史，不代表 PingTask 批次失败。上报携带 `ping_results_batch_id` 时，Agent 只有收到相同 ID 与完整 `ping_results_received` 数量后才从队列移除该批结果；ACK 丢失会安全重传，D1 复合主键负责幂等。服务端 error 示例：
 
 ```json
 { "type": "error", "ts": 1720000000000, "error": "unauthorized", "code": 401 }
@@ -223,12 +223,16 @@ WSS 可用且 `CONNECTION_MODE=auto` 时，Agent 默认按 `REPORT_INTERVAL / 15
 
 收到 error 后 Agent 会立即关闭当前 WSS，并暂停 WSS 和 POST fallback 120 秒后再重试。
 
+schema `6` 在既有动态配置上增加 `ping_tasks`。该字段是 URL-encoded JSON 数组，每项包含 `id`、`name`、`type`（`icmp` / `tcp` / `http`）、`target`、`interval_seconds` 与 `timeout_ms`。schema `3`、`4`、`5` 不接收该字段。Agent 将任务以 Base64URL JSON 写入本地 `PING_TASKS`，重启后继续调度；新任务或配置发生变化的任务会立即执行，最多 4 个并发。待回传结果最多缓存 100 条，每个指标包最多携带 20 条；队列溢出只记录丢弃计数，不记录目标或探测错误原文。
+
+PingTask 仍属于单向监控：Agent 只执行 Worker 预先校验的 ICMP/TCP/HTTP 探测并回传任务 ID、时间、成功位和延迟，不执行 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令，也不会上传 HTTP 响应正文和 Header。
+
 WSS 也支持服务端下发动态配置，配置内容复用旧 POST 响应里的 query-string body；Agent 侧最短每 1 分钟处理一次 WSS 配置下发，服务端不需要在每个 ack 中都携带配置。`configMd5` 可选，带上时会按旧 `X-Agent-Config-Md5` 逻辑更新本地配置版本；不带时 Agent 会按配置字段是否变化决定是否写入本地配置。
 
 ```json
 {
   "type": "config",
-  "body": "collect_interval=0&report_interval=60&reset_day=1&schema_version=4&interface=&connection_mode=auto"
+  "body": "collect_interval=0&report_interval=60&wss_report_interval=2&reset_day=1&schema_version=6&interface=&connection_mode=auto&ping_tasks=%5B%5D"
 }
 ```
 
@@ -241,9 +245,10 @@ WSS 也支持服务端下发动态配置，配置内容复用旧 POST 响应里�
     "collect_interval": 0,
     "report_interval": 60,
     "reset_day": 1,
-    "schema_version": 4,
+    "schema_version": 6,
     "interface": "",
-    "connection_mode": "auto"
+    "connection_mode": "auto",
+    "ping_tasks": []
   }
 }
 ```
@@ -307,7 +312,16 @@ WSS 也支持服务端下发动态配置，配置内容复用旧 POST 响应里�
     "loss_bd": false
   },
   "collect_interval": 0,
-  "report_interval": 60
+  "report_interval": 60,
+  "ping_results_batch_id": "18d36f00-18d36f01-1",
+  "ping_results": [
+    {
+      "task_id": "2e7c7b9a-722a-4a20-9280-cf4266f4104d",
+      "timestamp": 1737638340000,
+      "latency_ms": 42,
+      "success": true
+    }
+  ]
 }
 ```
 
@@ -341,9 +355,11 @@ WSS 也支持服务端下发动态配置，配置内容复用旧 POST 响应里�
 | `time` | object | 本机墙钟与独立时间校准状态；字段见下表 |
 | `metrics` | object | 当前上报周期的完整监控指标 |
 | `samples` | array | 可选，仅 `COLLECT_INTERVAL > 0` 时存在 |
+| `ping_results_batch_id` | string | 可选，当前最多 20 条 PingTask 结果的有界批次 ID；WSS ACK 必须原样回传 |
+| `ping_results` | array | 可选，最多 20 条待回传 PingTask 结果；失败结果的 `latency_ms` 为 `-1` |
 | `collect_interval` | number | 高频采样间隔，单位秒；`0` 表示不启用高频采样 |
 | `report_interval` | number | 上报间隔，单位秒 |
-| `config_schema` | string | 动态配置协议版本，当前为 `4`；WSS 建连 query、首次上报、约每 60 秒或 MD5 变化时携带 |
+| `config_schema` | string | 动态配置协议版本，当前为 `6`；WSS 建连 query、首次上报、约每 60 秒或 MD5 变化时携带 |
 | `config_md5` | string | 本地保存的远端配置 MD5；首次或为空时为 `none`，WSS 建连 query 与消息字段携带，POST 保留 `X-Agent-Config-Md5` Header |
 
 `time` 字段：

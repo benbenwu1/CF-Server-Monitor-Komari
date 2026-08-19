@@ -18,8 +18,8 @@ const server = {
   report_interval: 60,
   reset_day: 15
 };
-const expected = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=4&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&connection_mode=http';
-const expectedWssEnabled = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=4&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&connection_mode=auto';
+const expected = 'collect_interval=1&report_interval=60&wss_report_interval=2&reset_day=15&schema_version=6&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&connection_mode=http&ping_tasks=%5B%5D';
+const expectedWssEnabled = 'collect_interval=1&report_interval=60&wss_report_interval=2&reset_day=15&schema_version=6&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=&connection_mode=auto&ping_tasks=%5B%5D';
 const expectedLegacy = 'collect_interval=1&report_interval=60&reset_day=15&schema_version=3&custom_ct=&custom_cu=&custom_cm=&custom_bd=&interface=';
 
 const config = buildAgentConfig(server);
@@ -72,8 +72,10 @@ assert.deepEqual(buildAgentConfig({}), {
   custom_cm: '',
   custom_bd: '',
   interface: '',
-  schema_version: 4,
-  connection_mode: 'http'
+  schema_version: 6,
+  wss_report_interval: 2,
+  connection_mode: 'http',
+  ping_tasks: []
 });
 assert.equal(buildAgentConfig({ connection_mode: 'post' }).connection_mode, 'http');
 assert.equal(buildAgentConfig({ connection_mode: 'auto' }, { wss_report_enabled: 'true' }).connection_mode, 'auto');

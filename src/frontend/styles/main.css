@@ -2893,6 +2893,37 @@ body::before {
     height: 280px !important;
 }
 
+.ping-task-detail-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.ping-task-detail-stat {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.ping-task-detail-stat b {
+    color: var(--text-primary);
+}
+
+.ping-task-detail-empty {
+    position: absolute;
+    left: 50%;
+    bottom: 110px;
+    transform: translateX(-50%);
+    z-index: 1;
+}
+
 /* --------------------------------------------------------------------------
    27. Map Container
    -------------------------------------------------------------------------- */

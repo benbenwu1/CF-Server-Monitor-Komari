@@ -16,6 +16,7 @@ import {
 } from '../utils/realtimeBroadcastGate.js';
 import {
   AGENT_CONFIG_MD5_HEADER,
+  AGENT_CONFIG_PING_TASK_SCHEMA_VERSION,
   AGENT_CONFIG_SCHEMA_HEADER,
   describeAgentConfig,
   isValidTrafficCorrection,
@@ -23,6 +24,7 @@ import {
   serializeCorrection
 } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged } from '../utils/agentConfigNotify.js';
+import { listAgentPingTasks, PingTaskError, savePingTaskResults } from '../services/pingTasks.js';
 
 // 将最新一次上报打包成前端可直接消费的 "当前状态" 对象
 // 与 /api/server 和 /api/servers 返回的字段保持一致，便于页面直接合并
@@ -529,6 +531,21 @@ export async function handleUpdate(request, env, ctx) {
       return createBadRequestResponse('Missing metrics');
     }
 
+    try {
+      await savePingTaskResults(
+        env.DB,
+        id,
+        data.ping_results,
+        Date.now(),
+        data.ping_results_batch_id
+      );
+    } catch (error) {
+      if (error instanceof PingTaskError) {
+        return createBadRequestResponse(error.message);
+      }
+      throw error;
+    }
+
     // 获取最后一条插入（如果是批量数据，取最后一个样本）
     const latestSample = samples[samples.length - 1];
     const latestMetrics = getReportMetrics(data, latestSample);
@@ -559,7 +576,10 @@ export async function handleUpdate(request, env, ctx) {
 
     try {
       const settings = await loadSiteSettings(env.DB);
-      const descriptor = await describeAgentConfig(serverDetail, settings, clientConfigSchema);
+      const pingTasks = clientConfigSchema >= AGENT_CONFIG_PING_TASK_SCHEMA_VERSION
+        ? await listAgentPingTasks(env.DB, id)
+        : [];
+      const descriptor = await describeAgentConfig(serverDetail, settings, clientConfigSchema, pingTasks);
       const clientConfigMd5 = (request.headers.get(AGENT_CONFIG_MD5_HEADER) || '').trim().toLowerCase();
       const hasCorrection = descriptor.correction !== null;
       const md5Changed = clientConfigMd5 !== descriptor.md5;

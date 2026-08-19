@@ -341,6 +341,30 @@ export const fetchAllHistory = async (id, hours, apiIndex = 0) => {
   return Array.isArray(result.data) ? result.data : []
 }
 
+export const fetchPingTaskSeries = async (id, hours, apiIndex = 0) => {
+  const supportedHours = [1, 6, 12, 24, 48, 96, 168]
+  const requestedHours = Number(hours) || 24
+  const queryHours = supportedHours.find(value => value >= requestedHours) || 168
+  const query = new URLSearchParams({
+    server_id: String(id),
+    hours: String(queryHours)
+  })
+  const result = await http.getByIndex(`/api/ping-history?${query}`, apiIndex, { autoRedirect: false })
+  if (result.error) {
+    const error = new Error(result.error)
+    error.code = result.code
+    error.status = result.status
+    throw error
+  }
+  const cutoff = Date.now() - requestedHours * 60 * 60 * 1000
+  const series = Array.isArray(result.data?.series) ? result.data.series : []
+  return series.map(item => ({
+    task: item.task,
+    results: (Array.isArray(item.results) ? item.results : [])
+      .filter(entry => Number(entry.timestamp) >= cutoff)
+  }))
+}
+
 export const adminApi = async (data, apiIndex = 0, options = {}) => {
   const result = await http.postByIndex('/admin/api', data, apiIndex, options)
   return result
