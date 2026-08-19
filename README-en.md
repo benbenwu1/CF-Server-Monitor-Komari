@@ -70,6 +70,7 @@ Compared with traditional controller-style monitoring tools, CF-Server-Monitor i
 | Network quality | Latency and packet loss tracking for CT, CU, CM, and an optional custom `BD` endpoint; bounded ICMP/TCP/HTTP PingTasks with per-server assignment, 7-day history, and detail charts |
 | Dashboard views | Bar chart, ring chart, table, and map views for desktop and mobile |
 | Admin panel | Server CRUD, drag sorting, hidden servers, import/export, batch delete, database maintenance |
+| Configuration backup | Download an allowlisted JSON manifest with SHA-256, or optionally store it in private R2; metrics, sessions, audits, known credentials, and automatic restore are excluded |
 | Cross-platform Agent | Mainstream Linux, Alpine Linux, OpenWrt, Synology DSM, Feiniu fnOS, FreeBSD, macOS, Windows; Go Agent by default, Shell/PowerShell still available |
 | Realtime push | Durable Objects + WebSocket refresh the UI immediately after Agent reports |
 | Alerts | Offline alerts, recovery notices, expiration reminders, resource load rules |
@@ -88,6 +89,7 @@ flowchart LR
   Worker -.->|"schema 6 bounded config<br/>no remote commands"| Agent
   Worker --> D1["Cloudflare D1<br/>servers / settings / history"]
   Worker <--> DO["Durable Object<br/>WebSocket broadcast"]
+  Worker -.->|"optional allowlisted config backup"| R2["Private R2 Bucket"]
   Worker --> Assets["Vue Dashboard<br/>Admin Panel"]
   Browser["Browser / Mobile / Widget"] <--> Worker
 ```
@@ -160,6 +162,8 @@ Recommended if you want GitHub Actions to own the full deployment workflow.
 | `D1_DATABASE_ID` | Yes | D1 database ID |
 | `API_SECRET` | Yes | Agent reporting secret and initial admin password |
 | `CORS_ALLOWED_ORIGINS` | No | Allowed API origins, comma-separated |
+
+To let GitHub Actions declare the optional private R2 binding, add `R2_BACKUP_BUCKET` as an Actions Variable, not a Secret. Create the bucket first; leaving the variable empty keeps R2 unbound and does not affect browser downloads. See [deployment notes](docs/DEPLOYMENT.md#私有-r2-配置逻辑备份可选) for setup and lifecycle guidance.
 
 Pushing to `main` triggers deployment. You can also manually run the `Deploy to Cloudflare Workers` workflow from the Actions tab.
 
@@ -411,6 +415,10 @@ Admin -> Database Management provides:
 
 - Upgrade database: add missing fields and indexes without deleting existing data.
 - Clear history: delete monitoring history while keeping servers and site settings.
+- Download logical backup: export non-credential settings, appearance, servers, and PingTasks with versions, record counts, and SHA-256.
+- Save to private R2: available only when `BACKUP_BUCKET` is bound. Files can still contain server notes and probe targets and must remain private.
+
+The logical backup is not a complete D1 snapshot and cannot be imported automatically. Use the [Cloudflare operations guide](docs/OPERATIONS.md) for incident rollback and full SQL exports.
 
 After upgrading from older versions to versions with GPU, disk IO, packet loss, or new history structures, run database upgrade first if the UI reports missing fields, then upgrade the Agent.
 

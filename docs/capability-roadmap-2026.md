@@ -188,8 +188,9 @@
 | TOTP 2FA | 已完成 AES-GCM 加密 secret、RFC 6238 验证、setup/confirm/disable、10 个一次性恢复码、登录/setup 确认/站点公开性等关键设置/停用保护、D1 原子五分钟失败预算、并发 setup 确认 CAS、管理界面和安全审计；初始材料只显示一次 | 工作包完成；启用前必须单独配置并妥善备份 Cloudflare Secret `TOTP_ENCRYPTION_KEY` |
 | GitHub OAuth | 已完成 GitHub 单 Provider：固定 exact callback、state 哈希与原子单次消费、S256 PKCE、numeric ID 绑定、60 秒交换码、TOTP/恢复码登录、绑定/解绑、OAuth Session 撤销、管理界面和多 API base Token 隔离；GitHub token 不落库 | 工作包完成；部署前创建专用 OAuth App、关闭 wildcard，并分别配置公开 Client ID、固定 callback URL 与 Worker Secret；密码登录永久保留 |
 | 任意 PingTask | 已完成 ICMP/TCP/HTTP CRUD、排序、节点分配、新节点默认应用、schema 6 配置、Agent 本地有界调度、带批次 ACK 的 HTTP/WSS 结果回传、7 天 D1 历史、每任务最新 2048 点读取上限、管理摘要和节点详情聚合图表；不保存正文/Header/原始错误 | 工作包完成；71 项 Worker Node 测试与 119 项 Agent Go 测试、race、vet、生产构建、依赖审计和 Wrangler dry-run 均通过，尚未部署。默认 300 秒；60 秒在 10 任务时每节点约产生 14,400 条结果写/日，必须结合 D1 Free 10 万行写/日与原指标写入评估 |
+| D1 → R2 备份 | 已完成配置逻辑导出：站点非凭据设置、外观、服务器和 PingTask 使用显式白名单，带格式版本、应用版本、UTC 时间、记录计数与 SHA-256；可选 `BACKUP_BUCKET` 手动写入私有 R2，未绑定时安全降级 | 当前只做 1 MiB 有界配置 JSON，不含指标、Session、审计或任何已知凭据，也不提供自动恢复。完整 D1 SQL 继续用 Wrangler；官方 REST export + Workflows 需要独立高权限 Token，后置为隔离组件 |
 
-Session、TOTP、GitHub OAuth 与 PingTask 已形成独立 P1 检查点但未部署；generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
+Session、TOTP、GitHub OAuth、PingTask 与配置逻辑备份已形成独立 P1 检查点但未部署；generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
 
 ### P2：实验或额度敏感
 

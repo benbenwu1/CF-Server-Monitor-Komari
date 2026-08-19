@@ -17,6 +17,7 @@ import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../da
 import { isValidTrafficCorrection, normalizeConnectionMode, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
+import { createLogicalBackup, isR2BackupAvailable, LogicalBackupError, storeLogicalBackupInR2 } from '../services/logicalBackup.js';
 
 const PING_NODE_FIELDS = ['custom_ct', 'custom_cu', 'custom_cm', 'custom_bd'];
 const THEME_PREVIEW_AUTH_COOKIE = 'cfsm_theme_preview_auth';
@@ -890,7 +891,90 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       return simpleAuthResponse();
     }
 
-    if (data.action === 'ping_task_list') {
+    if (data.action === 'logical_backup_status') {
+      return createSuccessResponse({
+        success: true,
+        r2_available: isR2BackupAvailable(env),
+        scope: 'configuration-only',
+        restore_supported: false
+      }, { 'Cache-Control': 'no-store' });
+    }
+    else if (data.action === 'logical_backup_export') {
+      try {
+        const artifact = await createLogicalBackup(env.DB);
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.backup.export',
+          targetType: 'logical_backup',
+          detail: {
+            size_bytes: artifact.sizeBytes,
+            checksum_sha256: artifact.checksum,
+            record_counts: artifact.backup.manifest.record_counts
+          }
+        });
+        return createSuccessResponse({
+          success: true,
+          backup: artifact.backup,
+          size_bytes: artifact.sizeBytes,
+          checksum_sha256: artifact.checksum
+        }, {
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff'
+        });
+      } catch (error) {
+        const code = error instanceof LogicalBackupError
+          ? error.code
+          : 'logicalBackupExportFailed';
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.backup.export',
+          outcome: 'failure',
+          targetType: 'logical_backup',
+          detail: { reason: code }
+        });
+        return createBadRequestResponse(code);
+      }
+    }
+    else if (data.action === 'logical_backup_r2_create') {
+      if (!isR2BackupAvailable(env)) {
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.backup.r2_create',
+          outcome: 'failure',
+          targetType: 'logical_backup',
+          detail: { reason: 'logicalBackupR2Unavailable' }
+        });
+        return createBadRequestResponse('logicalBackupR2Unavailable');
+      }
+
+      try {
+        const artifact = await createLogicalBackup(env.DB);
+        const stored = await storeLogicalBackupInR2(env.BACKUP_BUCKET, artifact);
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.backup.r2_create',
+          targetType: 'r2_object',
+          targetId: stored.key,
+          detail: {
+            size_bytes: stored.size,
+            checksum_sha256: stored.checksum_sha256,
+            record_counts: artifact.backup.manifest.record_counts
+          }
+        });
+        return createSuccessResponse({
+          success: true,
+          object: stored
+        }, { 'Cache-Control': 'no-store' });
+      } catch (error) {
+        const code = error instanceof LogicalBackupError
+          ? error.code
+          : 'logicalBackupR2Failed';
+        await recordAdminAuditEvent(env.DB, request, {
+          eventType: 'admin.backup.r2_create',
+          outcome: 'failure',
+          targetType: 'logical_backup',
+          detail: { reason: code }
+        });
+        return createBadRequestResponse(code);
+      }
+    }
+    else if (data.action === 'ping_task_list') {
       try {
         return createSuccessResponse({ success: true, tasks: await listPingTasks(env.DB) });
       } catch (error) {

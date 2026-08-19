@@ -1,6 +1,6 @@
 # Cloudflare 运维手册
 
-> 最后核验：2026-08-18。本文只使用公开资源名和占位符，不应粘贴 API Token、`API_SECRET`、JWT、通知凭据或数据库中的 Secret。
+> 最后核验：2026-08-19。本文只使用公开资源名和占位符，不应粘贴 API Token、`API_SECRET`、JWT、通知凭据或数据库中的 Secret。
 
 ## 能力边界
 
@@ -85,6 +85,51 @@ npx wrangler d1 execute "$D1_NAME" --remote \
 
 如果恢复点选错，立即重新暂停写入，并使用第 1 步保存的“当前状态 bookmark”再执行一次 `restore`。Time Travel 恢复本身不会删除更旧的 bookmark。
 
+## 配置逻辑备份
+
+管理页“数据库管理 → 配置逻辑备份”提供两种手动操作：
+
+1. 下载 `cfsm-logical-backup` JSON 到当前设备。
+2. 仅在存在 `BACKUP_BUCKET` binding 时，把同一 JSON 写入私有 R2。
+
+它只保存站点非凭据设置、外观、服务器和 PingTask 配置，不保存指标历史、PingTask 结果、Session、审计、TOTP/OAuth 状态或产品已知凭据。它也不是恢复包；不要把文件 POST 回 `/admin/api`，当前没有导入动作。
+
+### 校验本地文件
+
+文件内的 SHA-256 针对 UTF-8 `JSON.stringify(backup.data)`。以下命令只打印计算值、manifest 值和是否一致，不打印备份正文：
+
+```bash
+export BACKUP_FILE='.local-backups/cfsm-config-example.json'
+node -e '
+const fs = require("node:fs");
+const crypto = require("node:crypto");
+const backup = JSON.parse(fs.readFileSync(process.env.BACKUP_FILE, "utf8"));
+const actual = crypto.createHash("sha256").update(JSON.stringify(backup.data)).digest("hex");
+const expected = backup.manifest.checksum.value;
+console.log({ actual, expected, match: actual === expected });
+'
+```
+
+校验前把文件放入已被 Git 忽略的 `.local-backups/`，不要使用仓库内其他目录。
+
+### 从私有 R2 下载
+
+管理页成功提示和 `admin.backup.r2_create` 审计会记录对象 key，不记录内容。把 key 作为完整对象路径下载：
+
+```bash
+export R2_BUCKET='your-cfsm-private-backups'
+export R2_KEY='cfsm-logical-backups/YYYY/MM/DD/cfsm-config-EXAMPLE.json'
+mkdir -p .local-backups
+npx wrangler r2 object get "$R2_BUCKET/$R2_KEY" \
+  --file ".local-backups/$(basename "$R2_KEY")"
+```
+
+下载后执行上面的 SHA-256 校验。R2 生命周期是 bucket 级配置，不由 Worker 代码自动修改；配置与检查命令见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+
+### 完整 D1 归档仍走独立路径
+
+配置逻辑备份不替代第 3 步的 `wrangler d1 export`。Cloudflare 还提供 [D1 REST export + Workflows + R2 官方示例](https://developers.cloudflare.com/workflows/examples/backup-d1/)，但它需要具有 D1 export 权限的 API Token，并会导出整个数据库。若以后启用，应使用独立 Worker、独立最小权限 Secret 和私有 R2，不把 Token 放进当前面板 Worker；当前没有部署该组件。
+
 ## Workers Logs 与 Traces
 
 ### 推荐起点
@@ -152,3 +197,4 @@ npx wrangler tail cf-server-monitor-komari \
 2. 确认 `.local-backups/` 未被 Git 跟踪，并按本地保留策略清理旧导出。
 3. 检查 Workers Logs/Traces 当日用量和采样率，不将 3 天平台保留误当成长期日志。
 4. 查看管理审计和通知投递记录，确认没有持续登录失败或 Provider 故障。
+5. 若启用私有 R2，确认 `cfsm-logical-backups/` 生命周期仍生效，并抽样下载一份文件验证 manifest SHA-256。

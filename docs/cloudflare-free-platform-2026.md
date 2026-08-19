@@ -1,6 +1,6 @@
 # Cloudflare 免费平台能力核验（2026）
 
-> 核验日期：2026-08-18（Asia/Shanghai）。本文只采用 Cloudflare 官方文档、价格页、限制页和 changelog；所有额度均可能继续变化，实施前应再次检查链接中的当前值。
+> 核验日期：2026-08-19（Asia/Shanghai）。本文只采用 Cloudflare 官方文档、价格页、限制页和 changelog；所有额度均可能继续变化，实施前应再次检查链接中的当前值。
 
 ## 结论先行
 
@@ -93,6 +93,8 @@
 
 它适合编排“导出 D1 → 校验 → 写 R2 → 通知”或“发起诊断 → 等 Agent → 聚合结果 → 通知”这类低频流程。每分钟执行的正常告警轮询和 D1 历史写入继续使用现有 Worker/Cron 更简单、更节省 steps。
 
+Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers.cloudflare.com/workflows/examples/backup-d1/) 官方示例：Workflow 调用 D1 REST export、轮询 signed URL，再把 SQL dump 流式写入 R2。它证明完整归档在 Free 可实现，但不改变权限边界：示例需要具有目标 D1 export 权限的 API Token，完整 SQL 也会包含当前 D1 中的凭据与运行数据。本项目先落地不需要该高权限 Token 的管理员脱敏配置 JSON；完整 Workflow 归档后置为独立组件。
+
 ### R2、Analytics Engine 与 Browser Run
 
 [R2 Pricing](https://developers.cloudflare.com/r2/pricing/) 的免费额度足以保存小型监控站的导出包，而且公网 egress 免费。它应作为可选归档层，不放在指标上报的同步路径中。
@@ -134,7 +136,7 @@
 
 - Queues：通知投递记录、失败重试、Webhook 去耦。
 - R2：版本化 JSON/SQL 导出、备份清单和恢复校验。
-- 可选 Workflows：把低频备份和周期报告做成可恢复步骤。
+- 可选 Workflows：使用独立最小权限 Token，把低频完整 D1 REST export 和周期报告做成可恢复步骤；不把该 Token 注入当前面板 Worker。
 
 ### P2：额度敏感或实验性质
 

@@ -1,6 +1,6 @@
 # 独立测试环境与运维记录
 
-> 最后验证：2026-08-18（Asia/Shanghai）。本文只记录公开资源标识和安全操作边界，不包含任何 Secret、JWT 或 Agent 配置内容。
+> 最后验证：2026-08-19（Asia/Shanghai）。本文只记录公开资源标识和安全操作边界，不包含任何 Secret、JWT 或 Agent 配置内容。
 
 ## 当前基线
 
@@ -67,6 +67,44 @@ npx wrangler secret put GITHUB_OAUTH_CLIENT_SECRET
 
 首次启用步骤：先用密码登录管理页，在“设备会话”中绑定 GitHub；未绑定前，任何匿名 GitHub callback 都不能取得管理员权限。若已启用 TOTP，绑定、GitHub 登录和解绑都必须再验证 TOTP 或一次性恢复码。解绑会撤销所有 `github_oauth*` Session，但不会撤销密码 Session。
 
+### 私有 R2 配置逻辑备份（可选）
+
+本功能不要求 R2。没有 `BACKUP_BUCKET` binding 时，管理页仍可下载逻辑备份，Worker、Agent 上报和其他管理能力不受影响。
+
+需要私有 R2 时，由运维人员先创建专用 bucket；不要启用 `r2.dev` 或公共自定义域名：
+
+```bash
+npx wrangler r2 bucket create your-cfsm-private-backups
+```
+
+本地/手工部署时在 `wrangler.toml` 增加：
+
+```toml
+[[r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "your-cfsm-private-backups"
+```
+
+GitHub Actions 部署时不要把 bucket 名写入 Secret。到仓库 Settings → Secrets and variables → Actions → Variables 新建普通变量：
+
+```text
+R2_BACKUP_BUCKET=your-cfsm-private-backups
+```
+
+现有 workflow 仅在变量非空且符合 R2 bucket 命名规则时附加 binding。变量为空时不会声明或创建 R2 资源。
+
+建议按 `cfsm-logical-backups/` 前缀设置 90 天生命周期；先核对目标 bucket，再执行会改变远端配置的命令：
+
+```bash
+npx wrangler r2 bucket lifecycle add \
+  your-cfsm-private-backups \
+  cfsm-logical-backups-90d \
+  cfsm-logical-backups/ \
+  --expire-days 90
+```
+
+该 JSON 明确排除产品已知凭据和运行历史，但仍可能包含服务器内部备注、ID 和 PingTask 目标。详见 [`logical-backup-2026.md`](logical-backup-2026.md)。当前不支持把它自动恢复到 D1。
+
 ## 真实测试节点
 
 | 项目 | 当前值 |
@@ -129,3 +167,4 @@ npx wrangler deploy --dry-run
 - 不读取、复制或迁移旧项目的 token、数据库和 Agent 配置。
 - `upstream` 只允许 fetch；不向上游推送。
 - 当前改动只推送 `codex/reboot-foundation`，未经确认不合并 `main`。
+- 不把 D1 REST export 所需的高权限 API Token 加入当前面板 Worker；若以后采用官方 Workflows 完整归档，必须作为独立备份组件部署。

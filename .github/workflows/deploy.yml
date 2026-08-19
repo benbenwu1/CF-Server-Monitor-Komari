@@ -48,6 +48,8 @@ jobs:
         run: npm run build:frontend
 
       - name: 📝 Create wrangler.toml
+        env:
+          R2_BACKUP_BUCKET: ${{ vars.R2_BACKUP_BUCKET }}
         run: |
           cat > wrangler.toml << 'WEOF'
           name = "server-monitor-pro"
@@ -84,6 +86,20 @@ jobs:
           API_USER_NAME = "USER_NAME_PLACEHOLDER"
           CORS_ALLOWED_ORIGINS = "CORS_ORIGINS_PLACEHOLDER"
           WEOF
+
+          # 可选配置逻辑备份：仓库变量为空时完全不声明 R2 binding。
+          if [ -n "$R2_BACKUP_BUCKET" ]; then
+            if [[ ! "$R2_BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
+              echo "R2_BACKUP_BUCKET 必须是 3-63 位小写字母、数字或连字符" >&2
+              exit 1
+            fi
+            cat >> wrangler.toml << WEOF
+
+          [[r2_buckets]]
+          binding = "BACKUP_BUCKET"
+          bucket_name = "$R2_BACKUP_BUCKET"
+          WEOF
+          fi
 
           # 替换占位符
           sed -i "s|D1_PLACEHOLDER|${{ secrets.D1_DATABASE_ID }}|g" wrangler.toml

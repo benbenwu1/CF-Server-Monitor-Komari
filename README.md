@@ -70,6 +70,7 @@ CF-Server-Monitor 是一个部署在 Cloudflare Workers 上的服务器监控系
 | 网络质量      | 电信、联通、移动三网与可选 `BD` 延迟/丢包；通用 ICMP/TCP/HTTP PingTask、节点分配、7 天历史与详情图表             |
 | 多视图前台     | 条形图、环形图、表格、地图视图，支持桌面端和移动端                                                        |
 | 管理后台      | 服务器增删改查、拖拽排序、隐藏服务器、导入导出、批量删除、数据库维护                                               |
+| 配置备份      | 管理员下载带 SHA-256 清单的脱敏配置 JSON；可选写入私有 R2，不含指标历史、Session、审计和已知凭据，也不提供自动恢复               |
 | 多系统 Agent | 主流 Linux、Alpine Linux、OpenWrt、群晖 DSM、飞牛 fnOS、FreeBSD、macOS、Windows；默认 Go 版本，保留 Shell/PowerShell 版本 |
 | 实时推送      | Durable Objects + WebSocket，Agent 上报后前端即时刷新                                      |
 | 告警通知      | 离线告警、恢复通知、到期提醒、资源负载告警                                                            |
@@ -88,6 +89,7 @@ flowchart LR
   Worker -.->|"schema 6 bounded config<br/>no remote commands"| Agent
   Worker --> D1["Cloudflare D1<br/>servers / settings / history"]
   Worker <--> DO["Durable Object<br/>WebSocket broadcast"]
+  Worker -.->|"optional allowlisted config backup"| R2["Private R2 Bucket"]
   Worker --> Assets["Vue Dashboard<br/>Admin Panel"]
   Browser["Browser / Mobile / Widget"] <--> Worker
 ```
@@ -161,6 +163,8 @@ Go Agent 的完整更新记录见 [cfsm-agent releases](https://github.com/huila
 | `D1_DATABASE_ID`       | 是  | D1 数据库 ID                |
 | `API_SECRET`           | 是  | Agent 上报密钥和初始后台密码        |
 | `CORS_ALLOWED_ORIGINS` | 否  | 允许跨域访问 API 的来源，多个用英文逗号分隔 |
+
+若要让 GitHub Actions 声明可选私有 R2 binding，在 Actions Variables 中增加普通变量 `R2_BACKUP_BUCKET`；不要放进 Secrets。bucket 需提前创建，变量为空时不会声明 R2，也不影响管理页下载逻辑备份。完整步骤与生命周期建议见 [部署记录](docs/DEPLOYMENT.md#私有-r2-配置逻辑备份可选)。
 
 推送到 `main` 分支会自动部署，也可以在 Actions 页面手动运行 `Deploy to Cloudflare Workers` 工作流。
 
@@ -412,6 +416,10 @@ Go 版本和旧 Shell / PowerShell 版本卸载脚本只清理各自安装的服
 
 - 升级数据库：补齐新版本字段和索引，不删除现有数据。
 - 清空历史数据：删除历史监控记录，保留服务器列表和站点设置。
+- 下载配置逻辑备份：导出非凭据设置、外观、服务器和 PingTask，带版本、记录计数和 SHA-256。
+- 保存到私有 R2：仅在 `BACKUP_BUCKET` 已绑定时可用；文件仍可能含服务器备注和探测目标，必须私密保存。
+
+配置逻辑备份不是完整 D1 快照，也不能自动导入。事故回滚与完整 SQL 导出按 [Cloudflare 运维手册](docs/OPERATIONS.md) 执行。
 
 从旧版本升级到包含 GPU、磁盘 IO、丢包率或新历史结构的版本后，如果页面提示数据库字段缺失，请先执行升级数据库，再升级 Agent。
 

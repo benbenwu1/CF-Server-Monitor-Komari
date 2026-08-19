@@ -19,6 +19,48 @@
     </div>
 
     <div class="settings-section">
+      <div class="section-title"><span>▸</span> {{ trans.logicalBackup }}</div>
+      <div class="warning-box mb-3">
+        {{ trans.logicalBackupPrivacyHint }}
+      </div>
+
+      <div class="settings-grid">
+        <div class="form-group">
+          <label class="form-label">{{ trans.logicalBackupDownload }}</label>
+          <p class="text-muted mb-2">{{ trans.logicalBackupDownloadDesc }}</p>
+          <button
+            @click="handleLogicalBackupDownload"
+            class="btn btn-primary btn-lg"
+            :disabled="dbLoading || backupExporting"
+          >
+            {{ backupExporting ? trans.exporting : '📦 ' + trans.logicalBackupDownload }}
+          </button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">{{ trans.logicalBackupR2 }}</label>
+          <p class="text-muted mb-2">{{ trans.logicalBackupR2Desc }}</p>
+          <p class="text-sm mb-2" :class="r2Available ? '' : 'text-muted'">
+            {{ trans.logicalBackupR2Status }}:
+            {{ backupStatusLoading
+              ? trans.logicalBackupChecking
+              : (r2Available ? trans.logicalBackupR2Available : trans.logicalBackupR2Unavailable) }}
+          </p>
+          <button
+            @click="handleLogicalBackupR2"
+            class="btn btn-lg"
+            :disabled="dbLoading || backupStatusLoading || backupR2Saving || !r2Available"
+          >
+            {{ backupR2Saving ? trans.logicalBackupSaving : '☁️ ' + trans.logicalBackupSaveR2 }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="backupMessage" class="warning-box mt-3 text-sm">✅ {{ backupMessage }}</div>
+      <div v-if="backupError" class="danger-box mt-3 text-sm">❌ {{ backupError }}</div>
+    </div>
+
+    <div class="settings-section">
       <div class="section-title"><span>▸</span> {{ trans.exportServers }} / {{ trans.importServers }}</div>
 
       <div class="settings-grid">
@@ -67,7 +109,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { adminApi } from '../../../utils/api'
 
 const props = defineProps({
@@ -83,6 +125,110 @@ const fileInput = ref(null)
 const exporting = ref(false)
 const importing = ref(false)
 const importResult = ref(null)
+const backupStatusLoading = ref(false)
+const backupStatusLoaded = ref(false)
+const backupExporting = ref(false)
+const backupR2Saving = ref(false)
+const r2Available = ref(false)
+const backupMessage = ref('')
+const backupError = ref('')
+let backupStatusRequestId = 0
+
+const resolveBackupError = (result, fallbackKey) => {
+  const key = result?.error || fallbackKey
+  return props.trans[key] || props.trans[fallbackKey] || key
+}
+
+const loadBackupStatus = async () => {
+  if (backupStatusLoading.value || backupStatusLoaded.value) return
+  const requestId = ++backupStatusRequestId
+  const apiIndex = props.selectedApiIndex
+  backupStatusLoading.value = true
+  try {
+    const result = await adminApi({ action: 'logical_backup_status' }, apiIndex)
+    if (requestId !== backupStatusRequestId || apiIndex !== props.selectedApiIndex) return
+    if (result.error) {
+      backupError.value = resolveBackupError(result, 'logicalBackupStatusFailed')
+      return
+    }
+    r2Available.value = result.data?.r2_available === true
+    backupStatusLoaded.value = true
+  } catch (error) {
+    if (requestId !== backupStatusRequestId || apiIndex !== props.selectedApiIndex) return
+    backupError.value = error?.message || props.trans.logicalBackupStatusFailed
+  } finally {
+    if (requestId === backupStatusRequestId) backupStatusLoading.value = false
+  }
+}
+
+const handleLogicalBackupDownload = async () => {
+  backupExporting.value = true
+  backupMessage.value = ''
+  backupError.value = ''
+  try {
+    const result = await adminApi({ action: 'logical_backup_export' }, props.selectedApiIndex)
+    if (result.error || !result.data?.backup) {
+      backupError.value = resolveBackupError(result, 'logicalBackupExportFailed')
+      return
+    }
+
+    const backup = result.data.backup
+    const timestamp = String(backup.manifest?.generated_at || new Date().toISOString())
+      .replace(/[-:.]/g, '')
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cfsm-config-${timestamp}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    backupMessage.value = props.trans.logicalBackupDownloaded
+  } catch (error) {
+    backupError.value = error?.message || props.trans.logicalBackupExportFailed
+  } finally {
+    backupExporting.value = false
+  }
+}
+
+const handleLogicalBackupR2 = async () => {
+  backupR2Saving.value = true
+  backupMessage.value = ''
+  backupError.value = ''
+  try {
+    const result = await adminApi({ action: 'logical_backup_r2_create' }, props.selectedApiIndex)
+    if (result.error || !result.data?.object?.key) {
+      backupError.value = resolveBackupError(result, 'logicalBackupR2Failed')
+      if (result.error === 'logicalBackupR2Unavailable') {
+        r2Available.value = false
+      }
+      return
+    }
+    backupMessage.value = `${props.trans.logicalBackupR2Stored}: ${result.data.object.key}`
+  } catch (error) {
+    backupError.value = error?.message || props.trans.logicalBackupR2Failed
+  } finally {
+    backupR2Saving.value = false
+  }
+}
+
+watch(
+  () => [props.activeTab, props.selectedApiIndex],
+  ([activeTab], previous = []) => {
+    const previousApiIndex = previous[1]
+    if (previousApiIndex !== undefined && previousApiIndex !== props.selectedApiIndex) {
+      backupStatusRequestId++
+      backupStatusLoading.value = false
+      backupStatusLoaded.value = false
+      r2Available.value = false
+      backupMessage.value = ''
+      backupError.value = ''
+    }
+    if (activeTab === 'database') loadBackupStatus()
+  },
+  { immediate: true }
+)
 
 const handleExport = async () => {
   exporting.value = true
