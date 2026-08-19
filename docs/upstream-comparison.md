@@ -36,7 +36,7 @@
 6. 任意 ICMP/TCP/HTTP PingTask。
 7. D1 导出与 R2 备份。
 
-截至 2026-08-19，本地 `codex/reboot-foundation` 已完成第 6 项的第一版：Worker 管理任务与历史，`cfsm-agent` 在本地执行 ICMP/TCP/HTTP 并随指标单向回传结果；公开 API 不返回目标地址，节点详情通过单次聚合查询展示全部任务。该实现没有引入 Komari Agent 协议或任何反向命令通道，尚未部署。
+截至 2026-08-19，`codex/reboot-foundation` 已完成并部署第 6 项的第一版：Worker 管理任务与历史，`cfsm-agent` 在本地执行 ICMP/TCP/HTTP 并随指标单向回传结果；公开 API 不返回目标地址，节点详情通过单次聚合查询展示全部任务。当前测试环境未创建 PingTask，部署后真实 Agent 的普通 HTTP 指标上报保持正常。该实现没有引入 Komari Agent 协议或任何反向命令通道。
 
 保留 CFSM 自身优势：
 

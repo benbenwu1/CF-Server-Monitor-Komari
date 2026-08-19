@@ -6,7 +6,7 @@
 
 Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运行在被监控的 VPS/主机上，通过 HTTPS/WSS 单向上报到 Cloudflare。
 
-当前状态（2026-08-19）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已在本地分支完成，但本轮尚未部署。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+当前状态（2026-08-19）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已部署到独立测试 Worker 并完成线上验证。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
 
@@ -16,7 +16,7 @@ Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
 - [`logical-backup-2026.md`](logical-backup-2026.md)：D1/Time Travel/完整 SQL 导出与脱敏配置备份的边界，以及可选私有 R2 契约。
 - [`OPERATIONS.md`](OPERATIONS.md)：D1 Time Travel 恢复、Workers Logs/Traces 采样、脱敏和配额运维手册。
 
-控制面 P0 与独立管理审计界面已推送到 `codex/reboot-foundation`。P1 只按路线图逐个切片推进，不自动扩展到 P2，也不自动部署。
+控制面 P0、独立管理审计界面和 P1 已推送到 `codex/reboot-foundation`，并部署到独立测试环境。后续仍按路线图逐个切片推进，不自动扩展到 P2，也不自动部署。
 
 ## 上游关系
 
@@ -86,15 +86,15 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] 可选私有 R2：存在 `BACKUP_BUCKET` binding 时可手动保存同一份有界 JSON；未绑定时安全降级且不影响 Worker。服务器、分配关系和产物分别限制为 5000、50000 和 1 MiB，不提供自动恢复。
 - [ ] 后续工作包尚未选择；通知 Queue、周期流量报告，以及使用独立高权限 Secret 的完整 D1 REST export + Workflows 归档尚未开始。
 
-Session 工作包为 53 项 Node 测试通过，生产构建和 Wrangler dry-run 通过；尚未部署。升级后旧的无 `sid` JWT 会失效；旧前端单值 Token 会一次性迁移到当前选定站点。
+Session 工作包为 53 项 Node 测试通过，生产构建和 Wrangler dry-run 通过，现已部署。升级后旧的无 `sid` JWT 会失效；旧前端单值 Token 会一次性迁移到当前选定站点。
 
-TOTP 工作包将全量测试扩展到 55 项；代码与界面已完成，但尚未部署，也未创建或写入线上 `TOTP_ENCRYPTION_KEY`。
+TOTP 工作包将全量测试扩展到 55 项；代码与界面已部署，但没有创建或写入线上 `TOTP_ENCRYPTION_KEY`，因此 TOTP 仍未启用。
 
-GitHub OAuth 工作包将全量测试扩展到 62 项；生产构建、Agent 配置测试、`npm audit --audit-level=high` 与 Wrangler dry-run 均通过。当前没有创建 GitHub OAuth App、没有配置 `GITHUB_OAUTH_CLIENT_SECRET`，也没有部署该工作包。
+GitHub OAuth 工作包将全量测试扩展到 62 项；生产构建、Agent 配置测试、`npm audit --audit-level=high` 与 Wrangler dry-run 均通过，代码已部署。当前没有创建 GitHub OAuth App，也没有配置 Client ID、callback URL 或 `GITHUB_OAUTH_CLIENT_SECRET`，因此入口保持不可用。
 
-PingTask 工作包全量门禁：Worker 71 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）和 Wrangler `deploy --dry-run` 全部通过；Agent 119 项 Go 测试、`go test -race ./internal/cfprobe`、`go vet ./...` 全部通过。两个仓库的 `git diff --check` 均通过。当前不兼容 Komari Agent 协议，也不增加 traceroute、NextTrace、MeshTrace、iperf、Shell 或任意远程命令；本工作包尚未部署。
+PingTask 工作包全量门禁：Worker 71 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）和 Wrangler `deploy --dry-run` 全部通过；Agent 119 项 Go 测试、`go test -race ./internal/cfprobe`、`go vet ./...` 全部通过。两个仓库的 `git diff --check` 均通过。工作包已部署，当前未创建 PingTask，真实 Agent HTTP 指标上报保持正常。当前不兼容 Komari Agent 协议，也不增加 traceroute、NextTrace、MeshTrace、iperf、Shell 或任意远程命令。
 
-配置逻辑备份工作包全量门禁：Worker 72 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）、Wrangler `deploy --dry-run`、GitHub Actions YAML/内嵌 shell 语法和 `git diff --check` 全部通过；本工作包尚未部署。它不是完整 D1 快照：D1 Time Travel 继续负责短期原地回滚，`wrangler d1 export` 继续负责受控的完整 SQL 导出；Cloudflare 2026 官方 D1 REST export + Workflows 示例因需要高权限 API Token，后置为独立备份组件，不把该 Token 注入当前面板 Worker。
+配置逻辑备份工作包全量门禁：Worker 72 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）、Wrangler `deploy --dry-run`、GitHub Actions YAML/内嵌 shell 语法和 `git diff --check` 全部通过。工作包已部署；线上实际导出 3150 字节 JSON，SHA-256 复算一致，未认证 401 和 R2 未绑定 400 均符合契约。它不是完整 D1 快照：D1 Time Travel 继续负责短期原地回滚，`wrangler d1 export` 继续负责受控的完整 SQL 导出；Cloudflare 2026 官方 D1 REST export + Workflows 示例因需要高权限 API Token，后置为独立备份组件，不把该 Token 注入当前面板 Worker。
 
 ## 明确不做
 

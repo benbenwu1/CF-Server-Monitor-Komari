@@ -19,7 +19,7 @@
 | D1 ID | `fc52eab7-4134-4a12-bb2f-8777df48f89a` |
 | Durable Object | `MetricsBroadcaster` |
 | Cron | `*/1 * * * *` 和 `0 * * * *` |
-| 已验证 Worker Version | `39cb7d04-a470-4e4b-9800-b1478714da9b` |
+| 已验证 Worker Version | `6225658f-c926-47e0-abc0-7e06219e63e5` |
 
 `API_SECRET` 已作为 Cloudflare Secret 设置，本机回滚副本保存在 macOS Keychain：
 
@@ -30,7 +30,7 @@
 
 ### TOTP 加密 Secret（启用前必需）
 
-TOTP 代码已经支持独立的 `TOTP_ENCRYPTION_KEY`，但当前线上测试环境未创建或写入该 Secret，TOTP 也未启用。部署代码后，管理员必须先用 Cloudflare 的交互式 Secret 输入配置一个稳定、随机且至少 32 个字符的值：
+TOTP 代码已部署并支持独立的 `TOTP_ENCRYPTION_KEY`，但当前线上测试环境未创建或写入该 Secret，TOTP 也未启用。启用前，管理员必须先用 Cloudflare 的交互式 Secret 输入配置一个稳定、随机且至少 32 个字符的值：
 
 ```bash
 npx wrangler secret put TOTP_ENCRYPTION_KEY
@@ -40,7 +40,7 @@ npx wrangler secret put TOTP_ENCRYPTION_KEY
 
 ### GitHub OAuth（可选，当前未配置）
 
-代码已支持 GitHub OAuth，但当前线上测试环境没有创建 OAuth App、没有配置 Client ID / Client Secret / callback URL，也没有部署本工作包。启用前先在 GitHub 创建只用于登录的 OAuth App：
+GitHub OAuth 代码已部署，但当前线上测试环境没有创建 OAuth App，也没有配置 Client ID / Client Secret / callback URL，因此入口保持不可用。启用前先在 GitHub 创建只用于登录的 OAuth App：
 
 1. Authorization callback URL 精确填写 `https://<Worker 域名>/admin/oauth/github/callback`。
 2. 关闭该 callback 的 wildcard matching。2026-08-03 之前创建且原来只有一条 callback 的旧 App 可能被迁移为 wildcard 开启，必须主动复核。
@@ -126,6 +126,12 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 已验证链路
 
+- Git 提交 `1aebd4d374463ddd4b8386788cb6e85e536d9571` 已推送到 `origin/codex/reboot-foundation`；Worker Version `6225658f-c926-47e0-abc0-7e06219e63e5` 于 2026-08-19 接管 100% 流量。
+- `/` 与 `/admin` 均返回 `200 text/html`；线上版本保留 `API_SECRET` Secret、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET`。
+- 配置逻辑备份状态接口未认证时返回 401；密码登录后返回 `scope=configuration-only`、`restore_supported=false`、`r2_available=false`。
+- 线上实际导出 `cfsm-logical-backup` v1 成功，产物 3150 字节，包含 1 台服务器、0 个 PingTask；重新计算 `JSON.stringify(backup.data)` 的 SHA-256 与 manifest 完全一致。
+- 未绑定 R2 时，写入请求稳定返回 `400 logicalBackupR2Unavailable`；验证产生的临时 curl Session 已全部服务端撤销。
+- 部署后 `/api/servers` 返回 1 台服务器，最近上报距检查时约 35 秒；D1 `metrics_history` 最新时间为 `2026-08-19T09:54:10.121Z`，证明真实 Agent HTTP 上报未被 P1 部署打断。
 - `/api/config`、`/__do/health`、管理员登录和 JWT 正常。
 - Agent HTTP POST 上报正常，节点可在 5 分钟在线阈值内持续保持在线。
 - Agent WSS 已临时开启并真实建连成功；验证后恢复 `wss_report_enabled=false`，避免长期占用 DO duration。
