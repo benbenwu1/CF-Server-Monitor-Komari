@@ -92,11 +92,15 @@ export function useTurnstile() {
       const result = await fetchTurnstileConfigByIndex(selectedApiIndex)
       if (!result.error) {
         await applyTurnstileConfig(result.data)
+        turnstileToken.value = getTurnstileToken()
+        return result.data
       }
       turnstileToken.value = getTurnstileToken()
+      return null
     } catch (e) {
       turnstileToken.value = getTurnstileToken()
       console.error('Failed to load Turnstile config:', e)
+      return null
     }
   }
 

@@ -7,7 +7,7 @@
         <p class="login-subtitle">{{ trans.enterCredentials }}</p>
       </div>
       <form @submit.prevent="$emit('login')">
-        <div v-if="isMultipleMode" class="login-form-group">
+        <div v-if="isMultipleMode && !oauthPending" class="login-form-group">
           <label class="login-label">{{ trans.apiEndpoint }}</label>
           <select :value="selectedApiIndex" class="login-input" @change="$emit('api-index-change', Number($event.target.value))">
             <option
@@ -19,19 +19,21 @@
             </option>
           </select>
         </div>
-        <div class="login-form-group">
-          <label class="login-label">{{ trans.username }}</label>
-          <input type="text" name="username" autocomplete="username" v-model="loginForm.username" required class="login-input" placeholder="admin">
-        </div>
-        <div class="login-form-group last">
-          <label class="login-label">{{ trans.password }}</label>
-          <div class="password-input-wrapper">
-            <input :type="passwordVisible.login ? 'text' : 'password'" name="password" autocomplete="current-password" v-model="loginForm.password" required class="login-input" placeholder="••••••••">
-            <button type="button" class="password-toggle" @click="$emit('toggle-password', 'login')">
-              {{ passwordVisible.login ? '🙈' : '👁️' }}
-            </button>
+        <template v-if="!oauthPending">
+          <div class="login-form-group">
+            <label class="login-label">{{ trans.username }}</label>
+            <input type="text" name="username" autocomplete="username" v-model="loginForm.username" required class="login-input" placeholder="admin">
           </div>
-        </div>
+          <div class="login-form-group last">
+            <label class="login-label">{{ trans.password }}</label>
+            <div class="password-input-wrapper">
+              <input :type="passwordVisible.login ? 'text' : 'password'" name="password" autocomplete="current-password" v-model="loginForm.password" required class="login-input" placeholder="••••••••">
+              <button type="button" class="password-toggle" @click="$emit('toggle-password', 'login')">
+                {{ passwordVisible.login ? '🙈' : '👁️' }}
+              </button>
+            </div>
+          </div>
+        </template>
         <div v-if="totpRequired" class="login-form-group">
           <label class="login-label">
             {{ useRecovery ? trans.totpRecoveryCode : trans.totpCode }}
@@ -69,6 +71,15 @@
         <div v-if="loginError" id="login-error" class="login-error">{{ loginError }}</div>
         <button type="submit" class="login-btn">{{ loginLoading ? '⏳' : trans.login }}</button>
       </form>
+      <template v-if="githubOauthAvailable && !oauthPending">
+        <div class="login-separator"><span>{{ trans.githubOauthOr }}</span></div>
+        <button
+          type="button"
+          class="login-btn github-login-btn"
+          :disabled="loginLoading"
+          @click="$emit('github-login')"
+        >GitHub · {{ trans.githubOauthLogin }}</button>
+      </template>
     </div>
     <Footer />
   </div>
@@ -86,6 +97,8 @@ defineProps({
   passwordVisible: { type: Object, required: true },
   loginError: { type: String, default: '' },
   loginLoading: { type: Boolean, default: false },
+  githubOauthAvailable: { type: Boolean, default: false },
+  oauthPending: { type: Boolean, default: false },
   totpRequired: { type: Boolean, default: false },
   useRecovery: { type: Boolean, default: false },
   turnstileSiteKey: { type: String, default: '' },
@@ -94,5 +107,5 @@ defineProps({
   turnstileVerified: { type: Boolean, default: false }
 })
 
-defineEmits(['login', 'toggle-password', 'api-index-change', 'toggle-recovery'])
+defineEmits(['login', 'github-login', 'toggle-password', 'api-index-change', 'toggle-recovery'])
 </script>

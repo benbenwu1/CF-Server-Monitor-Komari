@@ -1855,6 +1855,20 @@ body::before {
     min-height: 180px;
 }
 
+.github-oauth-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.github-oauth-status > div {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
 .session-table code {
     color: var(--accent-cyan);
     font-size: 11px;
@@ -3459,6 +3473,39 @@ body.server-row-drag-active * {
 
 .login-btn:hover {
     background: #00bf99;
+}
+
+.login-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.login-separator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 16px 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.login-separator::before,
+.login-separator::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--border-color);
+}
+
+.github-login-btn {
+    background: var(--bg-secondary);
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+
+.github-login-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-cyan);
 }
 
 /* --------------------------------------------------------------------------

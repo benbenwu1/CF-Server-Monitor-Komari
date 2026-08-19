@@ -12,6 +12,7 @@ Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
 
 - [`capability-roadmap-2026.md`](capability-roadmap-2026.md)：Komari 全能力、当前 Fork 源码、线上启用状态和 P0/P1/P2 评分矩阵。
 - [`cloudflare-free-platform-2026.md`](cloudflare-free-platform-2026.md)：Cloudflare 官方免费额度、新增产品能力与本项目采用边界。
+- [`github-oauth-official-2026.md`](github-oauth-official-2026.md)：GitHub OAuth 与 Cloudflare Workers 的 2026 官方协议、安全和部署依据。
 - [`OPERATIONS.md`](OPERATIONS.md)：D1 Time Travel 恢复、Workers Logs/Traces 采样、脱敏和配额运维手册。
 
 控制面 P0 与独立管理审计界面已推送到 `codex/reboot-foundation`。P1 只按路线图逐个切片推进，不自动扩展到 P2，也不自动部署。
@@ -72,11 +73,15 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] TOTP 2FA：RFC 6238 / SHA-1 / 30 秒窗口，secret 使用独立 Cloudflare Secret 派生的 AES-GCM 密钥加密保存；支持 setup/confirm/disable 和 10 个一次性恢复码。
 - [x] TOTP 同时保护密码登录、setup 确认、站点公开性等关键设置和停用 2FA；登录按 IP、已登录操作按管理员身份共享独立的 D1 原子失败预算，五分钟内连续 5 次失败后限流。并发确认只允许一个请求消费 pending setup，初始密钥与唯一一套有效恢复码仅在创建时显示，D1、设置读取和审计均不回显。
 - [x] 管理端支持身份验证器/恢复码登录、手动配置 URI、一次性恢复码确认和停用流程；未配置 `TOTP_ENCRYPTION_KEY` 时拒绝启用，不使用不安全回退。
-- [ ] 下一工作包为 GitHub OAuth；其他 P1 工作包尚未开始。
+- [x] GitHub OAuth：固定 exact callback、5 分钟 state、S256 PKCE、numeric GitHub ID 绑定、60 秒一次性交换码、TOTP/恢复码二次验证、绑定/解绑和 OAuth Session 撤销均已接通；密码登录保持应急可用。
+- [x] OAuth access token 只在 callback 内存中使用；D1 仅保存 state/交换码哈希，不保存原始 state、PKCE verifier、GitHub token 或 Client Secret。匿名 start 按 IP 限制为五分钟 5 次且限流表只存哈希，GitHub token 与 `/user` 请求均有 10 秒超时；失败审计按事件、原因、IP 和五分钟窗口聚合，单组最多写 20 次。多站点前端会先清除 fragment，再按精确 `oauth_api` 将 JWT 保存到对应 API base。
+- [ ] 下一工作包为任意 ICMP/TCP/HTTP PingTask；通知 Queue、周期流量报告和 D1→R2 备份尚未开始。
 
 Session 工作包为 53 项 Node 测试通过，生产构建和 Wrangler dry-run 通过；尚未部署。升级后旧的无 `sid` JWT 会失效；旧前端单值 Token 会一次性迁移到当前选定站点。
 
 TOTP 工作包将全量测试扩展到 55 项；代码与界面已完成，但尚未部署，也未创建或写入线上 `TOTP_ENCRYPTION_KEY`。
+
+GitHub OAuth 工作包将全量测试扩展到 62 项；生产构建、Agent 配置测试、`npm audit --audit-level=high` 与 Wrangler dry-run 均通过。当前没有创建 GitHub OAuth App、没有配置 `GITHUB_OAUTH_CLIENT_SECRET`，也没有部署该工作包。
 
 ## 明确不做
 

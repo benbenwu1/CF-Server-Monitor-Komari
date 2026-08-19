@@ -9,8 +9,9 @@ import { addServerColumns } from '../database/updateDatabase.js';
 import { clearResourceAlertState, sendNotification } from '../services/notification.js';
 import { listAuditEvents, recordAuditEvent } from '../services/audit.js';
 import { listNotificationDeliveries } from '../services/notificationDelivery.js';
-import { createAdminSession, listAdminSessions, refreshAdminSession, revokeAdminSession, revokeCurrentAdminSession } from '../services/adminSession.js';
+import { createAdminSession, createAdminSessionFromOAuthExchange, listAdminSessions, refreshAdminSession, revokeAdminSession, revokeCurrentAdminSession } from '../services/adminSession.js';
 import { beginAdminTotpSetup, confirmAdminTotpSetup, disableAdminTotp, isAdminTotpEnabled, isTotpEncryptionAvailable, requiresTotpForSettings, verifyAdminSecondFactor } from '../services/totp.js';
+import { createGithubOAuthAuthorization, getGithubOAuthBinding, getGithubOAuthExchangeCode, isGithubOAuthAvailable, reserveGithubOAuthStart, unbindGithubOAuthIdentity } from '../services/githubOAuth.js';
 import { getNextServerHistoryPartitionId, HISTORY_MAX_PARTITION_ID } from '../database/indexOptimization.js';
 import { isValidTrafficCorrection, normalizeConnectionMode, validateAgentConfigInput, validatePingNode, validateNetworkInterfaces } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged, scheduleAgentReportModeChanged } from '../utils/agentConfigNotify.js';
@@ -22,6 +23,25 @@ const THEME_PREVIEW_AUTH_TTL = 600;
 const DURABLE_OBJECTS_WEBSOCKET_MESSAGE_BILLING_RATIO = 20;
 const LOGIN_FAILURE_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
 const LOGIN_FAILURE_AUDIT_WRITE_LIMIT = 20;
+const GITHUB_OAUTH_FAILURE_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+const GITHUB_OAUTH_FAILURE_AUDIT_WRITE_LIMIT = 20;
+const GITHUB_OAUTH_AUDIT_REASONS = new Set([
+  'already_bound',
+  'exchange_invalid',
+  'exchange_replayed',
+  'identity_mismatch',
+  'invalid_second_factor',
+  'not_bound',
+  'second_factor_rate_limited',
+  'start_failed',
+  'start_rate_limited',
+  'unavailable'
+]);
+const GITHUB_OAUTH_AUDIT_METHODS = new Set(['bind', 'exchange', 'session', 'start', 'totp', 'recovery', 'unbind']);
+const GITHUB_OAUTH_START_ERROR_CODES = new Set([
+  'github_oauth_unavailable',
+  'invalid_oauth_return_url'
+]);
 
 function createSecondFactorResponse(code, status = 401) {
   return new Response(JSON.stringify({
@@ -45,6 +65,24 @@ function createSecondFactorRateLimitResponse(retryAfter = 300) {
       'Retry-After': String(retryAfter)
     }
   });
+}
+
+function createGithubOAuthErrorResponse(code, status = 400, headers = {}) {
+  return new Response(JSON.stringify({ error: code, code }), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      ...headers
+    }
+  });
+}
+
+function getGithubOAuthStartErrorCode(error) {
+  const code = String(error?.message || '');
+  return GITHUB_OAUTH_START_ERROR_CODES.has(code)
+    ? code
+    : 'github_oauth_start_failed';
 }
 
 async function tryRecordAuditEvent(db, event) {
@@ -74,6 +112,74 @@ function getLoginSecondFactorRateLimitScope(request) {
 
 function getAuthenticatedSecondFactorRateLimitScope(env, sys) {
   return `admin:${sys?.username || env.API_USER_NAME || 'admin'}`;
+}
+
+function normalizeGithubOAuthAuditReason(reason) {
+  return GITHUB_OAUTH_AUDIT_REASONS.has(reason) ? reason : 'start_failed';
+}
+
+function normalizeGithubOAuthAuditMethod(method) {
+  return GITHUB_OAUTH_AUDIT_METHODS.has(method) ? method : null;
+}
+
+function getGithubOAuthFailureDedupeKey(request, eventType, reason, occurredAt = Date.now()) {
+  const ipAddress = request.headers.get('CF-Connecting-IP') || 'unknown';
+  return `${eventType}:${reason}:${ipAddress}:${Math.floor(occurredAt / GITHUB_OAUTH_FAILURE_DEDUPE_WINDOW_MS)}`;
+}
+
+async function recordGithubOAuthFailureAudit(db, request, reason, method = null) {
+  const occurredAt = Date.now();
+  const normalizedReason = normalizeGithubOAuthAuditReason(reason);
+  const normalizedMethod = normalizeGithubOAuthAuditMethod(method);
+  await tryRecordAuditEvent(db, {
+    eventType: 'auth.oauth.github.failure',
+    outcome: 'failure',
+    actor: 'anonymous',
+    targetType: 'admin_session',
+    targetId: 'github',
+    ipAddress: request.headers.get('CF-Connecting-IP'),
+    userAgent: request.headers.get('User-Agent'),
+    detail: {
+      provider: 'github',
+      reason: normalizedReason,
+      ...(normalizedMethod ? { method: normalizedMethod } : {})
+    },
+    dedupeKey: getGithubOAuthFailureDedupeKey(
+      request,
+      'auth.oauth.github.failure',
+      normalizedReason,
+      occurredAt
+    ),
+    maxCount: GITHUB_OAUTH_FAILURE_AUDIT_WRITE_LIMIT,
+    occurredAt
+  });
+}
+
+async function recordGithubOAuthAdminAudit(db, request, eventType, outcome, detail = {}) {
+  const occurredAt = Date.now();
+  const normalizedReason = outcome === 'failure'
+    ? normalizeGithubOAuthAuditReason(detail.reason)
+    : null;
+  const normalizedMethod = normalizeGithubOAuthAuditMethod(detail.method);
+  await tryRecordAuditEvent(db, {
+    eventType,
+    outcome,
+    actor: 'admin',
+    targetType: 'admin_oauth_identity',
+    targetId: 'github',
+    ipAddress: request.headers.get('CF-Connecting-IP'),
+    userAgent: request.headers.get('User-Agent'),
+    detail: {
+      provider: 'github',
+      ...(normalizedReason ? { reason: normalizedReason } : {}),
+      ...(normalizedMethod ? { method: normalizedMethod } : {})
+    },
+    dedupeKey: normalizedReason
+      ? getGithubOAuthFailureDedupeKey(request, eventType, normalizedReason, occurredAt)
+      : null,
+    maxCount: normalizedReason ? GITHUB_OAUTH_FAILURE_AUDIT_WRITE_LIMIT : undefined,
+    occurredAt
+  });
 }
 
 async function recordLoginAuditEvent(db, request, eventType, outcome, detail) {
@@ -545,6 +651,112 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
   try {
     const data = await request.json();
 
+    if (data.action === 'github_oauth_start') {
+      if (!isGithubOAuthAvailable(env)) {
+        await recordGithubOAuthFailureAudit(env.DB, request, 'unavailable', 'start');
+        return createGithubOAuthErrorResponse('github_oauth_unavailable');
+      }
+      try {
+        const reservation = await reserveGithubOAuthStart(env.DB, request);
+        if (!reservation.allowed) {
+          await recordGithubOAuthFailureAudit(env.DB, request, 'start_rate_limited', 'start');
+          return createGithubOAuthErrorResponse(
+            'github_oauth_start_rate_limited',
+            429,
+            { 'Retry-After': String(reservation.retryAfter) }
+          );
+        }
+        const authorization = await createGithubOAuthAuthorization(
+          env.DB,
+          env,
+          request,
+          { returnUrl: data.return_url }
+        );
+        return createSuccessResponse({
+          success: true,
+          authorize_url: authorization.authorizeUrl
+        }, { 'Cache-Control': 'no-store' });
+      } catch (error) {
+        await recordGithubOAuthFailureAudit(env.DB, request, 'start_failed', 'start');
+        return createGithubOAuthErrorResponse(getGithubOAuthStartErrorCode(error));
+      }
+    }
+
+    if (data.action === 'github_oauth_exchange') {
+      const exchange = await getGithubOAuthExchangeCode(env.DB, data.oauth_code);
+      if (!exchange) {
+        await recordGithubOAuthFailureAudit(env.DB, request, 'exchange_invalid', 'exchange');
+        return createGithubOAuthErrorResponse('github_oauth_exchange_invalid');
+      }
+      const binding = await getGithubOAuthBinding(env.DB);
+      if (!binding || String(binding.provider_user_id) !== String(exchange.provider_user_id)) {
+        await recordGithubOAuthFailureAudit(env.DB, request, 'identity_mismatch', 'exchange');
+        return createGithubOAuthErrorResponse('github_oauth_exchange_invalid');
+      }
+
+      const hasSecondFactorInput = !!String(data.totp_code || data.recovery_code || '').trim();
+      const secondFactor = await verifyAdminSecondFactor(env.DB, env.TOTP_ENCRYPTION_KEY, {
+        totpCode: data.totp_code,
+        recoveryCode: data.recovery_code,
+        rateLimitScope: getLoginSecondFactorRateLimitScope(request)
+      });
+      if (secondFactor.rateLimited) {
+        await recordGithubOAuthFailureAudit(
+          env.DB,
+          request,
+          'second_factor_rate_limited',
+          'exchange'
+        );
+        return createSecondFactorRateLimitResponse(secondFactor.retryAfter);
+      }
+      if (secondFactor.required && !secondFactor.valid) {
+        if (hasSecondFactorInput) {
+          await recordGithubOAuthFailureAudit(
+            env.DB,
+            request,
+            'invalid_second_factor',
+            'exchange'
+          );
+        }
+        return createSecondFactorResponse(
+          hasSecondFactorInput ? 'invalid_second_factor' : 'totp_required'
+        );
+      }
+
+      const authMethod = secondFactor.method === 'recovery'
+        ? 'github_oauth_recovery'
+        : secondFactor.method === 'totp'
+          ? 'github_oauth_totp'
+          : 'github_oauth';
+      const session = await createAdminSessionFromOAuthExchange(
+        env.DB,
+        request,
+        authMethod,
+        exchange
+      );
+      if (!session) {
+        await recordGithubOAuthFailureAudit(env.DB, request, 'exchange_replayed', 'exchange');
+        return createGithubOAuthErrorResponse('github_oauth_exchange_invalid');
+      }
+      const token = await generateToken(env, sys, {
+        sessionId: session.id,
+        issuedAt: session.created_at,
+        expiresAt: session.expires_at
+      });
+      await recordLoginAuditEvent(
+        env.DB,
+        request,
+        'auth.login.success',
+        'success',
+        { method: authMethod }
+      );
+      return createSuccessResponse({
+        success: true,
+        token,
+        message: 'loginSuccessful'
+      }, { 'Cache-Control': 'no-store' });
+    }
+
     if (data.action === 'login') {
       const { username, password } = data;
       
@@ -674,6 +886,142 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         success: true,
         sessions
       });
+    }
+    else if (data.action === 'github_oauth_bind_start') {
+      if (!isGithubOAuthAvailable(env)) {
+        await recordGithubOAuthAdminAudit(
+          env.DB,
+          request,
+          'admin.oauth.github.bind',
+          'failure',
+          { reason: 'unavailable', method: 'bind' }
+        );
+        return createGithubOAuthErrorResponse('github_oauth_unavailable');
+      }
+      const hasSecondFactorInput = !!String(data.totp_code || data.recovery_code || '').trim();
+      const verification = await verifyAdminSecondFactor(env.DB, env.TOTP_ENCRYPTION_KEY, {
+        totpCode: data.totp_code,
+        recoveryCode: data.recovery_code,
+        rateLimitScope: getAuthenticatedSecondFactorRateLimitScope(env, sys)
+      });
+      if (verification.rateLimited) {
+        await recordGithubOAuthAdminAudit(
+          env.DB,
+          request,
+          'admin.oauth.github.bind',
+          'failure',
+          { reason: 'second_factor_rate_limited', method: 'bind' }
+        );
+        return createSecondFactorRateLimitResponse(verification.retryAfter);
+      }
+      if (verification.required && !verification.valid) {
+        if (hasSecondFactorInput) {
+          await recordGithubOAuthAdminAudit(
+            env.DB,
+            request,
+            'admin.oauth.github.bind',
+            'failure',
+            { reason: 'invalid_second_factor', method: 'bind' }
+          );
+        }
+        return createSecondFactorResponse(
+          hasSecondFactorInput ? 'invalid_second_factor' : 'totp_required',
+          428
+        );
+      }
+      if (await getGithubOAuthBinding(env.DB)) {
+        await recordGithubOAuthAdminAudit(
+          env.DB,
+          request,
+          'admin.oauth.github.bind',
+          'failure',
+          { reason: 'already_bound', method: 'bind' }
+        );
+        return createGithubOAuthErrorResponse('github_oauth_already_bound');
+      }
+      try {
+        const authorization = await createGithubOAuthAuthorization(
+          env.DB,
+          env,
+          request,
+          {
+            purpose: 'bind',
+            sessionId: authContext.sessionId,
+            returnUrl: data.return_url
+          }
+        );
+        return createSuccessResponse({
+          success: true,
+          authorize_url: authorization.authorizeUrl
+        }, { 'Cache-Control': 'no-store' });
+      } catch (error) {
+        await recordGithubOAuthAdminAudit(
+          env.DB,
+          request,
+          'admin.oauth.github.bind',
+          'failure',
+          { reason: 'start_failed', method: 'bind' }
+        );
+        return createGithubOAuthErrorResponse(getGithubOAuthStartErrorCode(error));
+      }
+    }
+    else if (data.action === 'github_oauth_unbind') {
+      const hasSecondFactorInput = !!String(data.totp_code || data.recovery_code || '').trim();
+      const verification = await verifyAdminSecondFactor(env.DB, env.TOTP_ENCRYPTION_KEY, {
+        totpCode: data.totp_code,
+        recoveryCode: data.recovery_code,
+        rateLimitScope: getAuthenticatedSecondFactorRateLimitScope(env, sys)
+      });
+      if (verification.rateLimited) {
+        await recordGithubOAuthAdminAudit(
+          env.DB,
+          request,
+          'admin.oauth.github.unbind',
+          'failure',
+          { reason: 'second_factor_rate_limited', method: 'unbind' }
+        );
+        return createSecondFactorRateLimitResponse(verification.retryAfter);
+      }
+      if (verification.required && !verification.valid) {
+        if (hasSecondFactorInput) {
+          await recordGithubOAuthAdminAudit(
+            env.DB,
+            request,
+            'admin.oauth.github.unbind',
+            'failure',
+            { reason: 'invalid_second_factor', method: 'unbind' }
+          );
+        }
+        return createSecondFactorResponse(
+          hasSecondFactorInput ? 'invalid_second_factor' : 'totp_required',
+          428
+        );
+      }
+
+      const result = await unbindGithubOAuthIdentity(env.DB, authContext.sessionId);
+      if (!result.unbound) {
+        await recordGithubOAuthAdminAudit(
+          env.DB,
+          request,
+          'admin.oauth.github.unbind',
+          'failure',
+          { reason: 'not_bound', method: 'session' }
+        );
+        return createGithubOAuthErrorResponse('github_oauth_not_bound');
+      }
+      await recordGithubOAuthAdminAudit(
+        env.DB,
+        request,
+        'admin.oauth.github.unbind',
+        'success',
+        { method: verification.method || 'session' }
+      );
+      return createSuccessResponse({
+        success: true,
+        unbound: true,
+        revoked_sessions: result.revokedSessions,
+        current_session_revoked: result.currentSessionRevoked
+      }, { 'Cache-Control': 'no-store' });
     }
     else if (data.action === 'totp_setup') {
       if (!isTotpEncryptionAvailable(env.TOTP_ENCRYPTION_KEY)) {
@@ -815,6 +1163,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
     }
     else if (data.action === 'get_settings') {
       const fullSettings = loadFullSettings ? await loadFullSettings() : sys;
+      const githubBinding = await getGithubOAuthBinding(env.DB);
       const {
         jwt_secret,
         password,
@@ -828,6 +1177,9 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
           ...safeSettings,
           totp_enabled: await isAdminTotpEnabled(env.DB),
           totp_available: isTotpEncryptionAvailable(env.TOTP_ENCRYPTION_KEY),
+          github_oauth_available: isGithubOAuthAvailable(env),
+          github_oauth_bound: !!githubBinding,
+          github_login: githubBinding?.provider_login || '',
           has_notification_credential: !!String(tg_bot_token || '').trim(),
           has_notification_target: !!String(tg_chat_id || '').trim()
         },

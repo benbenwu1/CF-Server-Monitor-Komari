@@ -63,6 +63,89 @@ export async function createAdminSession(db, request, authMethod = 'password', n
   return session;
 }
 
+export async function createAdminSessionFromOAuthExchange(
+  db,
+  request,
+  authMethod,
+  exchange,
+  now = Date.now()
+) {
+  const id = crypto.randomUUID();
+  const metadata = getRequestMetadata(request);
+  const session = {
+    id,
+    subject: 'admin',
+    auth_method: cleanText(authMethod, 32) || 'github_oauth',
+    first_ip: metadata.ipAddress,
+    last_ip: metadata.ipAddress,
+    user_agent: metadata.userAgent,
+    created_at: now,
+    last_seen_at: now,
+    expires_at: now + ADMIN_SESSION_TTL_MS
+  };
+
+  const results = await db.batch([
+    db.prepare(`
+      INSERT INTO admin_sessions (
+        id,
+        subject,
+        auth_method,
+        first_ip,
+        last_ip,
+        user_agent,
+        created_at,
+        last_seen_at,
+        expires_at,
+        revoked_at
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+      WHERE EXISTS (
+        SELECT 1
+        FROM admin_oauth_exchange_codes AS exchange_code
+        JOIN admin_oauth_identities AS identity
+          ON identity.provider = exchange_code.provider
+          AND identity.provider_user_id = exchange_code.provider_user_id
+        WHERE exchange_code.code_hash = ?
+          AND exchange_code.provider = 'github'
+          AND exchange_code.provider_user_id = ?
+          AND exchange_code.consumed_at IS NULL
+          AND exchange_code.expires_at > ?
+      )
+    `).bind(
+      session.id,
+      session.subject,
+      session.auth_method,
+      session.first_ip,
+      session.last_ip,
+      session.user_agent,
+      session.created_at,
+      session.last_seen_at,
+      session.expires_at,
+      exchange.code_hash,
+      exchange.provider_user_id,
+      now
+    ),
+    db.prepare(`
+      UPDATE admin_oauth_exchange_codes
+      SET consumed_at = ?
+      WHERE code_hash = ?
+        AND provider = 'github'
+        AND provider_user_id = ?
+        AND consumed_at IS NULL
+        AND expires_at > ?
+    `).bind(
+      now,
+      exchange.code_hash,
+      exchange.provider_user_id,
+      now
+    )
+  ]);
+
+  const inserted = Number(results?.[0]?.meta?.changes || 0) > 0;
+  const consumed = Number(results?.[1]?.meta?.changes || 0) > 0;
+  return inserted && consumed ? session : null;
+}
+
 export async function validateAdminSession(db, sessionId, request, options = {}) {
   if (!db || !sessionId) return null;
   const now = Number.isFinite(options.now) ? options.now : Date.now();

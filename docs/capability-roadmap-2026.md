@@ -186,9 +186,9 @@
 | --- | --- | --- |
 | Session 管理 | 已完成单管理员 D1 设备会话、JWT `sid` 绑定、按 API base 隔离前端 Token、脱敏列表、最近活动节流、跨设备撤销、refresh 原子轮换、服务端退出、管理界面、立即失效、三类会话审计和 30 天过期记录清理；53 项测试、生产构建与 Wrangler dry-run 通过 | 工作包完成；旧无 `sid` JWT 在升级后需重新登录，旧单值 Token 只迁移到当前选定站点 |
 | TOTP 2FA | 已完成 AES-GCM 加密 secret、RFC 6238 验证、setup/confirm/disable、10 个一次性恢复码、登录/setup 确认/站点公开性等关键设置/停用保护、D1 原子五分钟失败预算、并发 setup 确认 CAS、管理界面和安全审计；初始材料只显示一次 | 工作包完成；启用前必须单独配置并妥善备份 Cloudflare Secret `TOTP_ENCRYPTION_KEY` |
-| GitHub OAuth | 尚未开始 | OAuth state、回调域名、账户绑定；保留密码应急登录 |
+| GitHub OAuth | 已完成 GitHub 单 Provider：固定 exact callback、state 哈希与原子单次消费、S256 PKCE、numeric ID 绑定、60 秒交换码、TOTP/恢复码登录、绑定/解绑、OAuth Session 撤销、管理界面和多 API base Token 隔离；GitHub token 不落库 | 工作包完成；部署前创建专用 OAuth App、关闭 wildcard，并分别配置公开 Client ID、固定 callback URL 与 Worker Secret；密码登录永久保留 |
 
-Session 与 TOTP 已形成独立 P1 检查点但未部署；OAuth/OIDC 和其他 P1 工作包均未开始。
+Session、TOTP 与 GitHub OAuth 已形成独立 P1 检查点但未部署；generic OIDC 不在当前 P1 重复实现，下一工作包为 ICMP/TCP/HTTP PingTask。
 
 ### P2：实验或额度敏感
 

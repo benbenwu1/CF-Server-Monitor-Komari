@@ -38,6 +38,35 @@ npx wrangler secret put TOTP_ENCRYPTION_KEY
 
 不要把值作为命令参数、环境普通变量、日志或仓库文件提交。该 Secret 用于派生 AES-GCM 密钥并加密 D1 中的 TOTP secret，同时保护恢复码摘要；一旦启用 TOTP，丢失或直接轮换它会导致现有验证码和恢复码都无法验证。启用前必须在密码管理器或系统密钥链中保存独立回滚副本，轮换前先停用 TOTP，再配置新 Secret 并重新绑定。
 
+### GitHub OAuth（可选，当前未配置）
+
+代码已支持 GitHub OAuth，但当前线上测试环境没有创建 OAuth App、没有配置 Client ID / Client Secret / callback URL，也没有部署本工作包。启用前先在 GitHub 创建只用于登录的 OAuth App：
+
+1. Authorization callback URL 精确填写 `https://<Worker 域名>/admin/oauth/github/callback`。
+2. 关闭该 callback 的 wildcard matching。2026-08-03 之前创建且原来只有一条 callback 的旧 App 可能被迁移为 wildcard 开启，必须主动复核。
+3. 不申请 `repo`、`user`、`user:email` 或其他 scope；本项目只用无 scope 的 `GET /user`，并以不可变 numeric `id` 识别管理员。
+4. 一个 OAuth App 当前最多配置 10 条 callback。开发、测试和生产优先使用独立 App，不共享 Client Secret。
+
+Worker 需要三项绑定：
+
+| 名称 | 类型 | 示例/说明 |
+| --- | --- | --- |
+| `GITHUB_OAUTH_CLIENT_ID` | 普通变量 | GitHub OAuth App 的公开 Client ID，可出现在浏览器 authorize URL。 |
+| `GITHUB_OAUTH_CALLBACK_URL` | 普通变量 | 与 GitHub App 中完全一致的固定 HTTPS callback；本地 `localhost` / `127.0.0.1` 调试可用 HTTP。 |
+| `GITHUB_OAUTH_CLIENT_SECRET` | Worker Secret | 只能通过 Cloudflare Secret binding 注入，不得写进 `wrangler.toml`、`.env`、日志或仓库。 |
+
+普通变量可在 Cloudflare Dashboard 的 Worker Settings 中设置，或在受控部署配置中声明。Client Secret 只能交互式写入：
+
+```bash
+npx wrangler secret put GITHUB_OAUTH_CLIENT_SECRET
+```
+
+当前 Wrangler 的 `secret put` 会创建新 Worker 版本并立即部署，因此不要把它当成本地测试命令；必须在取得上线授权后执行。本任务没有运行该命令。Secret 轮换会使尚未完成的 5 分钟 OAuth 流程失效，但不会删除既有 GitHub numeric ID 绑定。
+
+若管理前端部署在 GitHub Pages 或其他独立域名，还要把该前端的精确 origin 加入 `CORS_ALLOWED_ORIGINS`。OAuth 完成页固定为 `/admin#admin`；callback 只把 60 秒一次性交换码放入 URL fragment，前端会先清除 fragment，再向 `oauth_api` 指定且已配置的 Worker 交换本地 JWT。JWT、GitHub token、Client Secret 和 PKCE verifier 都不会进入 callback URL。
+
+首次启用步骤：先用密码登录管理页，在“设备会话”中绑定 GitHub；未绑定前，任何匿名 GitHub callback 都不能取得管理员权限。若已启用 TOTP，绑定、GitHub 登录和解绑都必须再验证 TOTP 或一次性恢复码。解绑会撤销所有 `github_oauth*` Session，但不会撤销密码 Session。
+
 ## 真实测试节点
 
 | 项目 | 当前值 |

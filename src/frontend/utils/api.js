@@ -341,8 +341,8 @@ export const fetchAllHistory = async (id, hours, apiIndex = 0) => {
   return Array.isArray(result.data) ? result.data : []
 }
 
-export const adminApi = async (data, apiIndex = 0) => {
-  const result = await http.postByIndex('/admin/api', data, apiIndex)
+export const adminApi = async (data, apiIndex = 0, options = {}) => {
+  const result = await http.postByIndex('/admin/api', data, apiIndex, options)
   return result
 }
 

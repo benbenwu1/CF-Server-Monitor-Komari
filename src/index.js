@@ -5,6 +5,7 @@ import { cleanupNotificationDeliveries } from './services/notificationDelivery.j
 import { cleanupAdminSessions } from './services/adminSession.js';
 import { updateDatabase } from './database/updateDatabase.js';
 import { handleAdminAPI } from './handlers/admin.js';
+import { handleGithubOAuthCallback } from './handlers/githubOAuth.js';
 import { serveFrontend } from './handlers/frontend.js';
 import { handleUpdate, handleWebSocketUpgrade, handleUpdateWebSocketUpgrade } from './handlers/update.js';
 import { handleServerAPI, handleServersAPI } from './handlers/dashboard.js';
@@ -16,6 +17,7 @@ import { AppError, createSuccessResponse, createUnauthorizedResponse, createBadR
 import { verifyTurnstileToken } from './utils/common.js';
 import { getCorsAllowedOrigins, createOptionsResponse, applyCors } from './utils/cors.js';
 import { getRemoteVersion } from './utils/version.js';
+import { cleanupGithubOAuthStartLimits, isGithubOAuthAvailable } from './services/githubOAuth.js';
 // Durable Objects: 实时指标广播
 // 显式 import + extends，确保 wrangler 静态分析器能在入口文件直接识别此 DO 类
 import { MetricsBroadcaster as _MetricsBroadcaster }
@@ -302,6 +304,7 @@ export default {
           turnstile_enabled: turnstileEnabled,
           turnstile_login_enabled: turnstileEnabled || turnstileLoginEnabled,
           turnstile_site_key: sys.turnstile_site_key || '',
+          github_oauth_available: isGithubOAuthAvailable(env),
           site_title: appearanceOptions.site_title || '',
           display_mode: appearanceOptions.display_mode || 'bar',
           theme_options: appearanceOptions.theme_options || {},
@@ -336,6 +339,10 @@ export default {
         return handleServersAPI(request, env, sys);
       }},
       { method: 'GET', path: '/api/ws', handler: async () => handleWebSocketUpgrade(request, env) },
+      { method: 'GET', path: '/admin/oauth/github/callback', handler: async () => {
+        await initDatabase(env.DB);
+        return handleGithubOAuthCallback(request, env);
+      }},
 
       { method: 'GET', path: '/api/history/all', handler: async () => {
         await ensureSiteSettings();
@@ -425,6 +432,9 @@ export default {
         debug('[Cron] 资源负载告警检测完成');
       }
     } else if (cron === '0 * * * *') {
+      const oauthStartLimitsDeleted = await cleanupGithubOAuthStartLimits(env.DB);
+      debug(`[Cron] GitHub OAuth 发起限流记录清理完成: limits=${oauthStartLimitsDeleted}`);
+
       if (hour === 0) {
         const [auditDeleted, deliveryDeleted, sessionDeleted] = await Promise.all([
           cleanupAuditEvents(env.DB),

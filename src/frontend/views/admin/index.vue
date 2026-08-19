@@ -10,6 +10,8 @@
       :password-visible="passwordVisible"
       :login-error="loginError"
       :login-loading="loginLoading"
+      :github-oauth-available="githubOauthAvailable"
+      :oauth-pending="!!githubOauthPendingCode"
       :totp-required="totpLoginRequired"
       :use-recovery="loginUseRecovery"
       :turnstile-site-key="turnstileSiteKey"
@@ -17,6 +19,7 @@
       :turnstile-enabled="turnstileEnabled"
       :turnstile-verified="turnstileVerified"
       @login="handleLogin"
+      @github-login="startGithubOauthLogin"
       @toggle-password="togglePassword"
       @toggle-recovery="toggleLoginRecovery"
       @api-index-change="handleApiIndexChange"
@@ -43,7 +46,7 @@
               v-model.number="selectedApiIndex"
               class="form-select admin-site-select"
               :title="trans.apiEndpoint"
-              :disabled="adminSiteLoading || sessionMutationActive || totpBusy"
+              :disabled="adminSiteLoading || sessionMutationActive || totpBusy || githubOauthBusy"
               @change="handleAdminApiIndexChange"
             >
               <option
@@ -54,7 +57,7 @@
                 [{{ index }}] {{ base }}
               </option>
             </select>
-            <button @click="logout" class="btn btn-red" :disabled="sessionMutationActive || totpBusy">
+            <button @click="logout" class="btn btn-red" :disabled="sessionMutationActive || totpBusy || githubOauthBusy">
               {{ sessionLoggingOut ? '⏳' : '🚪' }} {{ trans.logout }}
             </button>
           </div>
@@ -197,6 +200,15 @@
           @refresh-current="refreshCurrentSession"
           @revoke="revokeAdminSessionById"
         >
+          <GithubOAuthPanel
+            :trans="trans"
+            :available="githubOauthAvailable"
+            :bound="githubOauthBound"
+            :login="githubOauthLogin"
+            :busy="githubOauthBusy"
+            @bind="startGithubOauthBinding"
+            @unbind="unbindGithubOauth"
+          />
           <TotpPanel
             :trans="trans"
             :enabled="totpEnabled"
@@ -611,6 +623,7 @@ import DatabasePanel from './components/DatabasePanel.vue'
 import AuditPanel from './components/AuditPanel.vue'
 import SessionPanel from './components/SessionPanel.vue'
 import TotpPanel from './components/TotpPanel.vue'
+import GithubOAuthPanel from './components/GithubOAuthPanel.vue'
 import ThemeStorePanel from './components/ThemeStorePanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'
@@ -628,6 +641,7 @@ import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normal
 import { getCloudflareFreeDailyQuotas } from '../../utils/cloudflareQuotas.js'
 import { buildAuditListRequest, normalizeAuditPage } from '../../utils/audit.js'
 import { normalizeAdminSessions, refreshSessionTokenForSite, revokeCurrentSessionForLogout } from '../../utils/session.js'
+import { buildGithubOAuthReturnUrl, consumeGithubOAuthFragment, getGithubOAuthCallbackFeedback } from '../../utils/githubOAuth.js'
 
 const trans = useTranslation()
 const cloudflareFreeQuotas = getCloudflareFreeDailyQuotas()
@@ -859,7 +873,18 @@ const normalizeApiIndex = (value) => {
   if (Number.isNaN(index) || index < 0 || index >= apiBases.length) return 0
   return index
 }
-const selectedApiIndex = ref(normalizeApiIndex(route.query.apiIndex))
+const githubOauthFragment = typeof window === 'undefined'
+  ? { code: '', apiIndex: -1, error: '', bound: false }
+  : consumeGithubOAuthFragment(
+      window.location.href,
+      apiBases,
+      value => window.history.replaceState(window.history.state, '', value)
+    )
+const selectedApiIndex = ref(
+  githubOauthFragment.apiIndex >= 0
+    ? githubOauthFragment.apiIndex
+    : normalizeApiIndex(route.query.apiIndex)
+)
 const selectedApiBase = computed(() => apiBases[selectedApiIndex.value] || apiBases[0])
 const currentOrigin = computed(() => window.location.origin)
 
@@ -884,6 +909,12 @@ const loginLoading = ref(false)
 const totpLoginRequired = ref(false)
 const loginUseRecovery = ref(false)
 const adminSiteLoading = ref(false)
+const githubOauthAvailable = ref(false)
+const githubOauthBound = ref(false)
+const githubOauthLogin = ref('')
+const githubOauthBusy = ref(false)
+const githubOauthPendingCode = ref(githubOauthFragment.code)
+const githubOauthPendingApiIndex = ref(githubOauthFragment.apiIndex)
 const activeTab = ref('servers')
 const servers = ref([])
 const selectedServers = ref([])
@@ -1157,7 +1188,115 @@ const copyServerSpec = async ({ key, text } = {}) => {
   }
 }
 
+const finishAdminAuthentication = async () => {
+  isLoggedIn.value = true
+  totpLoginRequired.value = false
+  loginUseRecovery.value = false
+  loginForm.value.totp_code = ''
+  loginForm.value.recovery_code = ''
+  githubOauthPendingCode.value = ''
+  githubOauthPendingApiIndex.value = -1
+  syncApiIndexQuery()
+  clearTurnstile()
+  turnstileVerified.value = hasSharedTurnstileVerified()
+  await Promise.all([
+    loadSettings(),
+    loadServers(),
+    loadLatestAgentVersion(),
+    loadNotificationDeliveries()
+  ])
+}
+
+const exchangeGithubOauthCode = async () => {
+  const code = githubOauthPendingCode.value
+  const apiIndex = githubOauthPendingApiIndex.value
+  if (!code || apiIndex < 0) return
+
+  loginError.value = ''
+  loginLoading.value = true
+  try {
+    const result = await adminApi({
+      action: 'github_oauth_exchange',
+      oauth_code: code,
+      ...(totpLoginRequired.value && !loginUseRecovery.value && loginForm.value.totp_code
+        ? { totp_code: loginForm.value.totp_code }
+        : {}),
+      ...(totpLoginRequired.value && loginUseRecovery.value && loginForm.value.recovery_code
+        ? { recovery_code: loginForm.value.recovery_code }
+        : {})
+    }, apiIndex, {
+      includeAuth: false,
+      includeTurnstile: false,
+      autoRedirect: false
+    })
+
+    if (!result.error && result.data?.token) {
+      if (!setAuthToken(result.data.token, apiIndex)) {
+        loginError.value = getMessage('token_storage_failed')
+        return
+      }
+      selectedApiIndex.value = apiIndex
+      await finishAdminAuthentication()
+      return
+    }
+
+    if (['totp_required', 'invalid_second_factor', 'second_factor_rate_limited'].includes(result.code)) {
+      totpLoginRequired.value = true
+      loginError.value = result.code === 'second_factor_rate_limited'
+        ? trans.value.totpRateLimited
+        : result.code === 'invalid_second_factor'
+          ? trans.value.totpInvalidCode
+          : trans.value.totpRequired
+      return
+    }
+
+    githubOauthPendingCode.value = ''
+    githubOauthPendingApiIndex.value = -1
+    loginError.value = getMessage(result.code || result.error) || trans.value.githubOauthFailed
+  } finally {
+    loginLoading.value = false
+  }
+}
+
+const startGithubOauthLogin = async () => {
+  if (!githubOauthAvailable.value || loginLoading.value) return
+  const apiIndex = selectedApiIndex.value
+  loginError.value = ''
+  loginLoading.value = true
+  try {
+    const result = await adminApi({
+      action: 'github_oauth_start',
+      return_url: buildGithubOAuthReturnUrl(window.location.href)
+    }, apiIndex, {
+      includeAuth: false,
+      includeTurnstile: false,
+      autoRedirect: false
+    })
+    if (result.error) {
+      loginError.value = getMessage(result.code || result.error) || trans.value.githubOauthFailed
+      return
+    }
+    const authorizeUrl = new URL(String(result.data?.authorize_url || ''))
+    if (
+      authorizeUrl.origin !== 'https://github.com' ||
+      authorizeUrl.pathname !== '/login/oauth/authorize'
+    ) {
+      loginError.value = trans.value.githubOauthFailed
+      return
+    }
+    window.location.assign(authorizeUrl.toString())
+  } catch (_) {
+    loginError.value = trans.value.githubOauthFailed
+  } finally {
+    loginLoading.value = false
+  }
+}
+
 const handleLogin = async () => {
+  if (githubOauthPendingCode.value) {
+    await exchangeGithubOauthCode()
+    return
+  }
   loginError.value = ''
   loginLoading.value = true
 
@@ -1184,20 +1323,7 @@ const handleLogin = async () => {
     }
   )
   if (!result.error) {
-    isLoggedIn.value = true
-    totpLoginRequired.value = false
-    loginUseRecovery.value = false
-    loginForm.value.totp_code = ''
-    loginForm.value.recovery_code = ''
-    syncApiIndexQuery()
-    clearTurnstile()
-    turnstileVerified.value = hasSharedTurnstileVerified()
-    await Promise.all([
-      loadSettings(),
-      loadServers(),
-      loadLatestAgentVersion(),
-      loadNotificationDeliveries()
-    ])
+    await finishAdminAuthentication()
   } else if ([
     'totp_required',
     'invalid_second_factor',
@@ -1261,7 +1387,12 @@ const checkLoginStatus = () => {
 }
 
 const initAdmin = async () => {
+  if (githubOauthPendingCode.value) {
+    await exchangeGithubOauthCode()
+    return
+  }
   const hasCreds = checkLoginStatus()
+  const callbackFeedback = getGithubOAuthCallbackFeedback(githubOauthFragment, hasCreds)
   if (hasCreds) {
     isLoggedIn.value = true
     syncApiIndexQuery()
@@ -1275,13 +1406,24 @@ const initAdmin = async () => {
       loadLatestAgentVersion(),
       loadNotificationDeliveries()
     ])
+    if (callbackFeedback.alertKey) {
+      alertMessage.value = getMessage(callbackFeedback.alertKey)
+    }
   } else {
     await loadTurnstileConfig()
+    if (callbackFeedback.loginErrorKey) {
+      loginError.value = getMessage(callbackFeedback.loginErrorKey)
+    }
   }
 }
 
 const loadTurnstileConfig = async () => {
-  await loadTurnstileConfigBase(selectedApiIndex.value, isMultipleMode.value, loginError)
+  const config = await loadTurnstileConfigBase(
+    selectedApiIndex.value,
+    isMultipleMode.value,
+    loginError
+  )
+  githubOauthAvailable.value = config?.github_oauth_available === true
   if (turnstileSiteKey.value && (turnstileLoginEnabled.value || (turnstileEnabled.value && !turnstileVerified.value))) {
     await nextTick()
     renderTurnstile('#admin-turnstile-container', turnstileSiteKey.value)
@@ -1315,6 +1457,10 @@ const resetAdminContext = () => {
   totpBusy.value = false
   totpEnabled.value = false
   totpAvailable.value = false
+  githubOauthAvailable.value = false
+  githubOauthBound.value = false
+  githubOauthLogin.value = ''
+  githubOauthBusy.value = false
   selectedServers.value = []
   showEditModal.value = false
   showDeleteModal.value = false
@@ -1406,6 +1552,9 @@ const loadSettings = async () => {
       savedNotificationProvider.value = settings.value.notification_provider
       totpEnabled.value = settingsData.totp_enabled === true
       totpAvailable.value = settingsData.totp_available === true
+      githubOauthAvailable.value = settingsData.github_oauth_available === true
+      githubOauthBound.value = settingsData.github_oauth_bound === true
+      githubOauthLogin.value = String(settingsData.github_login || '')
       applyMikusThemeOptions(settingsData.theme_options)
       changeAdminPassword.value = !String(settings.value.username || '').trim()
       apiSecret.value = data.api_secret || ''
@@ -2264,6 +2413,96 @@ const revokeAdminSessionById = async (sessionId) => {
     if (mutationSequence === sessionMutationSequence) {
       sessionRevokingId.value = ''
     }
+  }
+}
+
+const githubOauthSecondFactorPayload = (value) => {
+  const normalized = String(value || '').trim()
+  if (!normalized) return {}
+  return /^\d{6}$/.test(normalized)
+    ? { totp_code: normalized }
+    : { recovery_code: normalized }
+}
+
+const requestGithubOauthSecondFactor = () => {
+  const value = window.prompt(trans.value.githubOauthFactorPrompt)
+  return value ? githubOauthSecondFactorPayload(value) : null
+}
+
+const startGithubOauthBinding = async () => {
+  if (githubOauthBusy.value || !githubOauthAvailable.value || githubOauthBound.value) return
+  const apiIndex = selectedApiIndex.value
+  githubOauthBusy.value = true
+  try {
+    const baseRequest = {
+      action: 'github_oauth_bind_start',
+      return_url: buildGithubOAuthReturnUrl(window.location.href)
+    }
+    let result = await adminApi(baseRequest, apiIndex, { autoRedirect: false })
+    if (result.status === 428 && ['totp_required', 'invalid_second_factor'].includes(result.code)) {
+      const factor = requestGithubOauthSecondFactor()
+      if (!factor) return
+      result = await adminApi({ ...baseRequest, ...factor }, apiIndex, { autoRedirect: false })
+    }
+    if (apiIndex !== selectedApiIndex.value) return
+    if (result.error) {
+      alertMessage.value = result.code === 'second_factor_rate_limited'
+        ? trans.value.totpRateLimited
+        : result.code === 'invalid_second_factor'
+          ? trans.value.totpInvalidCode
+          : getMessage(result.code || result.error) || trans.value.githubOauthFailed
+      return
+    }
+    const authorizeUrl = new URL(String(result.data?.authorize_url || ''))
+    if (
+      authorizeUrl.origin !== 'https://github.com' ||
+      authorizeUrl.pathname !== '/login/oauth/authorize'
+    ) {
+      alertMessage.value = trans.value.githubOauthFailed
+      return
+    }
+    window.location.assign(authorizeUrl.toString())
+  } catch (_) {
+    alertMessage.value = trans.value.githubOauthFailed
+  } finally {
+    if (apiIndex === selectedApiIndex.value) githubOauthBusy.value = false
+  }
+}
+
+const unbindGithubOauth = async () => {
+  if (githubOauthBusy.value || !githubOauthBound.value) return
+  if (!window.confirm(trans.value.githubOauthUnbindConfirm)) return
+  const apiIndex = selectedApiIndex.value
+  githubOauthBusy.value = true
+  try {
+    const baseRequest = { action: 'github_oauth_unbind' }
+    let result = await adminApi(baseRequest, apiIndex, { autoRedirect: false })
+    if (result.status === 428 && ['totp_required', 'invalid_second_factor'].includes(result.code)) {
+      const factor = requestGithubOauthSecondFactor()
+      if (!factor) return
+      result = await adminApi({ ...baseRequest, ...factor }, apiIndex, { autoRedirect: false })
+    }
+    if (apiIndex !== selectedApiIndex.value) return
+    if (result.error) {
+      alertMessage.value = result.code === 'second_factor_rate_limited'
+        ? trans.value.totpRateLimited
+        : result.code === 'invalid_second_factor'
+          ? trans.value.totpInvalidCode
+          : getMessage(result.code || result.error) || trans.value.githubOauthFailed
+      return
+    }
+    githubOauthBound.value = false
+    githubOauthLogin.value = ''
+    alertMessage.value = trans.value.githubOauthUnbindSuccess
+    if (result.data?.current_session_revoked === true) {
+      apiLogout(apiIndex)
+      isLoggedIn.value = false
+      await loadTurnstileConfig()
+      return
+    }
+    await Promise.all([loadSettings(), loadAdminSessions()])
+  } finally {
+    if (apiIndex === selectedApiIndex.value) githubOauthBusy.value = false
   }
 }
 
