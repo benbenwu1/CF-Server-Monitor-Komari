@@ -50,6 +50,7 @@ jobs:
       - name: 📝 Create wrangler.toml
         env:
           R2_BACKUP_BUCKET: ${{ vars.R2_BACKUP_BUCKET }}
+          NOTIFICATION_QUEUE_NAME: ${{ vars.NOTIFICATION_QUEUE_NAME }}
         run: |
           cat > wrangler.toml << 'WEOF'
           name = "server-monitor-pro"
@@ -98,6 +99,28 @@ jobs:
           [[r2_buckets]]
           binding = "BACKUP_BUCKET"
           bucket_name = "$R2_BACKUP_BUCKET"
+          WEOF
+          fi
+
+          # 可选通知 Queue：需先在同一 Cloudflare 账户创建 Queue。
+          if [ -n "$NOTIFICATION_QUEUE_NAME" ]; then
+            if [[ ! "$NOTIFICATION_QUEUE_NAME" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]]; then
+              echo "NOTIFICATION_QUEUE_NAME 必须是 1-63 位小写字母、数字、下划线或连字符" >&2
+              exit 1
+            fi
+            cat >> wrangler.toml << WEOF
+
+          [[queues.producers]]
+          binding = "NOTIFICATION_QUEUE"
+          queue = "$NOTIFICATION_QUEUE_NAME"
+
+          [[queues.consumers]]
+          queue = "$NOTIFICATION_QUEUE_NAME"
+          max_batch_size = 5
+          max_batch_timeout = 1
+          max_retries = 3
+          retry_delay = 60
+          max_concurrency = 1
           WEOF
           fi
 

@@ -1,7 +1,7 @@
 import { getAuthContext, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, clearServersListCache } from '../utils/cache.js';
-import { clearAppearanceSettingsCache, isWssReportEnabled, normalizeBooleanSetting, normalizeDisplayMode, normalizeExpireReminder, normalizeLongHistoryPoints, normalizeResourceAlertRules, normalizeTgNotify, saveSiteOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
+import { clearAppearanceSettingsCache, isWssReportEnabled, normalizeBooleanSetting, normalizeDisplayMode, normalizeExpireReminder, normalizeLongHistoryPoints, normalizeResourceAlertRules, normalizeTgNotify, normalizeTrafficReportSchedule, saveSiteOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
@@ -1587,12 +1587,15 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       const expireReminder = settings.expire_reminder !== undefined
         ? normalizeExpireReminder(settings.expire_reminder)
         : normalizeExpireReminder(sys?.expire_reminder);
+      const trafficReportSchedule = settings.traffic_report_schedule !== undefined
+        ? normalizeTrafficReportSchedule(settings.traffic_report_schedule)
+        : normalizeTrafficReportSchedule(sys?.traffic_report_schedule);
       const currentResourceAlertRules = normalizeResourceAlertRules(sys?.resource_alert_rules);
       const normalizedResourceAlertRules = hasResourceAlertRulesInput
         ? normalizeResourceAlertRules(settings.resource_alert_rules)
         : currentResourceAlertRules;
       const resourceAlertEnabled = normalizedResourceAlertRules.length > 0;
-      if (tgNotify !== '0' || expireReminder !== '0' || resourceAlertEnabled) {
+      if (tgNotify !== '0' || expireReminder !== '0' || trafficReportSchedule !== 'off' || resourceAlertEnabled) {
         const effectiveTgBotToken = settings.tg_bot_token !== undefined
           ? settings.tg_bot_token
           : sys?.tg_bot_token;
@@ -1658,6 +1661,8 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             siteOptions[field] = tgNotify;
           } else if (field === 'expire_reminder') {
             siteOptions[field] = expireReminder;
+          } else if (field === 'traffic_report_schedule') {
+            siteOptions[field] = trafficReportSchedule;
           } else if (field === 'long_history_points') {
             siteOptions[field] = normalizeLongHistoryPoints(settings[field]);
           } else if (field === 'resource_alert_rules') {

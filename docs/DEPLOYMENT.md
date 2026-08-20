@@ -105,6 +105,59 @@ npx wrangler r2 bucket lifecycle add \
 
 该 JSON 明确排除产品已知凭据和运行历史，但仍可能包含服务器内部备注、ID 和 PingTask 目标。详见 [`logical-backup-2026.md`](logical-backup-2026.md)。当前不支持把它自动恢复到 D1。
 
+### 隔离 D1 全量备份 Workflow（可选，当前未部署）
+
+完整 SQL 归档已经在 [`ops/d1-backup-workflow`](../ops/d1-backup-workflow/README.md) 中作为独立子项目实现。它不随面板 Worker 或 GitHub Actions 自动部署，也不使用面板的 Secret/binding。当前没有创建专用 R2、D1 REST API Token 或 Workflow，没有执行 `secret put`，线上版本不受影响。
+
+启用时必须满足以下边界：
+
+- 复制该目录的 `wrangler.toml.example` 为被 Git 忽略的 `wrangler.toml`，只填写非 Secret 标识。
+- 新建专用私有 R2，不开启 `r2.dev` 或公共自定义域名；建议对 `cfsm-d1-full-backups/` 设置 30 天生命周期。
+- 为目标账户创建仅含 D1 导出所需读权限的独立 Token，并交互式写入该 Worker 的 `D1_REST_API_TOKEN` Secret。
+- 默认 schedule 为每天 19:17 UTC。D1 export 期间数据库可能暂时无法查询，部署前必须确认这确实是站点低峰。
+- 先运行子项目 13 项 Node 测试和独立 Wrangler dry-run，再取得上线授权；不得把该组件追加到面板的 `deploy.yml`。
+- manifest 记录 SQL key、bookmark、字节数、ETag 和 R2 可用时返回的 MD5，但不记录 Token、database ID 或 signed URL；组件永不自动恢复生产 D1。
+
+资源创建、Secret、Workflow 状态、私有对象下载、SHA-256 长期校验和新 D1 演练恢复的完整命令均在子项目 README 中。根项目运维边界见 [`OPERATIONS.md`](OPERATIONS.md)。
+
+### 通知 Queue（可选，当前未创建）
+
+通知 Queue 与周期流量快照代码已在本地完成，但当前 Cloudflare 测试环境没有创建 Queue，也没有 `NOTIFICATION_QUEUE` binding，因此线上离线、恢复、资源和到期告警仍按原同步路径运行；流量快照的新设置默认为关闭。管理员“测试通知”无论是否启用 Queue 都保持同步。
+
+启用前先在目标账户创建专用 Queue；Queue 名不是 Secret：
+
+```bash
+npx wrangler queues create cf-server-monitor-komari-notifications
+```
+
+本地或手工部署时，取消 `wrangler.toml` 中 Queue 示例的注释；producer 与 consumer 必须同时指向同一 Queue：
+
+```toml
+[[queues.producers]]
+binding = "NOTIFICATION_QUEUE"
+queue = "cf-server-monitor-komari-notifications"
+
+[[queues.consumers]]
+queue = "cf-server-monitor-komari-notifications"
+max_batch_size = 5
+max_batch_timeout = 1
+max_retries = 3
+retry_delay = 60
+max_concurrency = 1
+```
+
+GitHub Actions 部署时，在仓库 Actions Variables 新建普通变量：
+
+```text
+NOTIFICATION_QUEUE_NAME=cf-server-monitor-komari-notifications
+```
+
+变量为空时 workflow 不声明 Queue，Worker 保持兼容；变量非空前必须先创建 Queue。不要把通知 Provider Token、Chat ID 或 Webhook 写入 Queue 变量、`wrangler.toml` 或 GitHub 配置，它们仍只保存在现有 D1 设置中。Queue 消息只有 `{version, job_id}`，consumer 执行时再读取当前设置。
+
+Workers Free 当前每天包含 10,000 Queue operations，一条小消息成功写入、读取、删除通常约 3 operations，且 Free 消息保留固定 24 小时。本实现只承接低频控制面告警和可选流量快照，不中转 Agent 指标或 PingTask 结果。同一 D1 job 共享初始投递加最多 3 次重试的持久化总预算，重复物理消息不会重置计数；outbox 还负责 staged 恢复。外部 Provider 仍是 at-least-once，极端崩溃窗口可能重复通知。
+
+流量快照可在管理页选择关闭、每日、每周或每月。周期按 UTC 计算，启用后会在当前周期首次小时 Cron 时发送；每个周期键只处理一次。内容是各服务器 Agent 上报的当前账期累计值，最多展开 50 台，并不是自然日/周/月增量；因为每台服务器可配置不同流量重置日，不能把该快照误读为统一结算周期。
+
 ## 真实测试节点
 
 | 项目 | 当前值 |
@@ -126,7 +179,7 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 已验证链路
 
-- Git 提交 `1aebd4d374463ddd4b8386788cb6e85e536d9571` 已推送到 `origin/codex/reboot-foundation`；Worker Version `6225658f-c926-47e0-abc0-7e06219e63e5` 于 2026-08-19 接管 100% 流量。
+- Git 提交 `1aebd4d374463ddd4b8386788cb6e85e536d9571` 已推送到 `origin/codex/reboot-foundation`；Worker Version `6225658f-c926-47e0-abc0-7e06219e63e5` 于 2026-08-19 接管 100% 流量。通知 Queue 与周期流量快照工作包尚未提交或部署，不改变该线上版本。
 - `/` 与 `/admin` 均返回 `200 text/html`；线上版本保留 `API_SECRET` Secret、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET`。
 - 配置逻辑备份状态接口未认证时返回 401；密码登录后返回 `scope=configuration-only`、`restore_supported=false`、`r2_available=false`。
 - 线上实际导出 `cfsm-logical-backup` v1 成功，产物 3150 字节，包含 1 台服务器、0 个 PingTask；重新计算 `JSON.stringify(backup.data)` 的 SHA-256 与 manifest 完全一致。

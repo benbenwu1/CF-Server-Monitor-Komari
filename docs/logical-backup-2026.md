@@ -1,6 +1,6 @@
 # 配置逻辑备份与可选 R2 设计
 
-> 最后核验：2026-08-19（Asia/Shanghai）。本工作包只实现管理员手动、脱敏的配置导出；不实现任意 SQL、自动恢复或完整 D1 定时归档。
+> 最后核验：2026-08-19（Asia/Shanghai）。面板工作包只实现管理员手动、脱敏的配置导出；完整 D1 定时归档已作为独立子项目在本地完成，仍不提供任意 SQL 或自动恢复。
 
 ## 结论
 
@@ -24,7 +24,7 @@ D1 Worker API 的 `dump()` 不能作为通用实现。Cloudflare 官方文档明
 - [Workers Limits](https://developers.cloudflare.com/workers/platform/limits/)：Free 每次动态请求为 10 ms CPU、128 MB 内存；因此产品内导出必须保持低频和有界。
 - [R2 Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)：可按对象前缀配置过期规则，适合控制长期备份数量。
 
-官方 Workflows 完整导出路径很有价值，但它导出整个 D1，会包含密码哈希、通知凭据、TOTP 密文、Session 和审计等数据，还需要一个能调用 D1 export REST API 的高权限 Secret。它应作为独立备份 Worker/Workflow 设计，不把该 Token 加入当前公开面板 Worker，也不与本工作包的脱敏 JSON 混用。
+官方 Workflows 完整导出路径很有价值，但它导出整个 D1，会包含密码哈希、通知凭据、TOTP 密文、Session 和审计等数据，还需要一个能调用 D1 export REST API 的独立 Secret。该路径已在 [`../ops/d1-backup-workflow`](../ops/d1-backup-workflow/README.md) 实现为隔离 Worker/Workflow：Token 不加入公开面板 Worker，SQL 与本工作包的脱敏 JSON 不混用。当前仅本地完成，尚未创建资源、写 Secret 或部署。
 
 ## 产物契约
 
@@ -43,7 +43,7 @@ SHA-256 的输入固定为 UTF-8 编码的 `JSON.stringify(backup.data)`。R2 �
 - `API_SECRET`、环境变量、Worker Secret 和 GitHub OAuth Client Secret。
 - 管理员用户名、密码哈希、JWT Secret、Turnstile Secret、Cloudflare Token/Account ID、通知 Token/Chat ID。
 - TOTP secret、恢复码、pending setup，以及 OAuth identity/state/交换码。
-- Session、二次验证限流、登录限流、审计和通知投递记录。
+- Session、二次验证限流、登录限流、审计、通知投递记录、通知 Queue outbox/job 状态和流量快照运行记录。
 - `metrics_history*`、`ping_task_results` 和资源告警运行态。
 
 配置文件仍可能包含管理员自己写入的服务器内部备注、服务器 ID 和探测目标，因此必须作为私密文件保存，不能公开到静态站点、GitHub Artifact 或公共 R2 域名。

@@ -1,0 +1,29 @@
+name = "cfsm-d1-backup-workflow"
+main = "src/index.js"
+compatibility_date = "2026-08-19"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+# Non-secret identifiers. Keep the D1 REST token out of this file.
+[vars]
+ACCOUNT_ID = "replace-with-account-id"
+DATABASE_ID = "replace-with-d1-database-uuid"
+DATABASE_LABEL = "cf-server-monitor-komari-db"
+BACKUP_PREFIX = "cfsm-d1-full-backups"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+# Runs daily at 19:17 UTC (03:17 Asia/Shanghai). D1 export can temporarily
+# block database queries, so move this schedule if that is not a quiet window.
+[[workflows]]
+name = "cfsm-d1-full-backup"
+binding = "BACKUP_WORKFLOW"
+class_name = "D1BackupWorkflow"
+schedules = ["17 19 * * *"]
+
+# Create this as a dedicated private bucket. Do not enable r2.dev or a custom domain.
+[[r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "replace-with-private-r2-bucket"

@@ -1,0 +1,25 @@
+name = "cfsm-d1-backup-workflow-config-test"
+main = "src/index.js"
+compatibility_date = "2026-08-19"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[vars]
+ACCOUNT_ID = "0123456789abcdef0123456789abcdef"
+DATABASE_ID = "01234567-89ab-cdef-0123-456789abcdef"
+DATABASE_LABEL = "cf-server-monitor-komari-db"
+BACKUP_PREFIX = "cfsm-d1-full-backups"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[[workflows]]
+name = "cfsm-d1-full-backup-config-test"
+binding = "BACKUP_WORKFLOW"
+class_name = "D1BackupWorkflow"
+schedules = ["17 19 * * *"]
+
+[[r2_buckets]]
+binding = "BACKUP_BUCKET"
+bucket_name = "cfsm-d1-full-backups-config-test"

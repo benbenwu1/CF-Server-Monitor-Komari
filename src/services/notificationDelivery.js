@@ -8,8 +8,8 @@ function cleanText(value, maxLength) {
     .slice(0, maxLength);
 }
 
-export async function recordNotificationDelivery(db, source, result) {
-  await db.prepare(`
+export function createNotificationDeliveryStatement(db, source, result) {
+  return db.prepare(`
     INSERT INTO notification_deliveries (
       source,
       provider,
@@ -27,7 +27,11 @@ export async function recordNotificationDelivery(db, source, result) {
     Number.isInteger(result?.status_code) ? result.status_code : null,
     result?.error ? cleanText(result.error, 100) : null,
     Date.now()
-  ).run();
+  );
+}
+
+export async function recordNotificationDelivery(db, source, result) {
+  await createNotificationDeliveryStatement(db, source, result).run();
 }
 
 export async function cleanupNotificationDeliveries(db, now = Date.now()) {

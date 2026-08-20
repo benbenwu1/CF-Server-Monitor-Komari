@@ -28,6 +28,21 @@ database_id = "fc52eab7-4134-4a12-bb2f-8777df48f89a"
 # binding = "BACKUP_BUCKET"
 # bucket_name = "your-private-backup-bucket"
 
+# 可选：自动告警异步投递。先创建 Queue，再同时启用 producer 与 consumer。
+# 未配置时离线、恢复、资源与到期告警保持原同步投递行为。
+# npx wrangler queues create cf-server-monitor-komari-notifications
+# [[queues.producers]]
+# binding = "NOTIFICATION_QUEUE"
+# queue = "cf-server-monitor-komari-notifications"
+#
+# [[queues.consumers]]
+# queue = "cf-server-monitor-komari-notifications"
+# max_batch_size = 5
+# max_batch_timeout = 1
+# max_retries = 3
+# retry_delay = 60
+# max_concurrency = 1
+
 # Durable Objects：实时指标广播中心
 # 注意：首次部署前需要执行 `wrangler durable-object create MetricsBroadcaster --class MetricsBroadcaster`
 # 或者在部署后，wrangler 会自动创建对应的 DO namespace。

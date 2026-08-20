@@ -163,6 +163,14 @@
           </div>
 
           <div class="form-group flex-1">
+            <label class="form-label">{{ trans.trafficReportSchedule }}</label>
+            <select v-model="settings.traffic_report_schedule" class="form-select">
+              <option v-for="option in trafficReportScheduleOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+            <p class="text-muted text-sm mt-1">{{ trans.trafficReportScheduleTip }}</p>
+          </div>
+
+          <div class="form-group flex-1">
             <label class="form-label">{{ trans.notificationProvider }}</label>
             <select v-model="settings.notification_provider" class="form-select">
               <option v-for="option in notificationProviderOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
@@ -585,6 +593,13 @@ const expireReminderOptions = computed(() => [
       label: `${label}`
     }
   })
+])
+
+const trafficReportScheduleOptions = computed(() => [
+  { value: 'off', label: props.trans.disabled },
+  { value: 'daily', label: props.trans.trafficReportDaily },
+  { value: 'weekly', label: props.trans.trafficReportWeekly },
+  { value: 'monthly', label: props.trans.trafficReportMonthly }
 ])
 
 const longHistoryPointOptions = computed(() => (

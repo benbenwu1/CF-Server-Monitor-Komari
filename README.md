@@ -71,6 +71,7 @@ CF-Server-Monitor 是一个部署在 Cloudflare Workers 上的服务器监控系
 | 多视图前台     | 条形图、环形图、表格、地图视图，支持桌面端和移动端                                                        |
 | 管理后台      | 服务器增删改查、拖拽排序、隐藏服务器、导入导出、批量删除、数据库维护                                               |
 | 配置备份      | 管理员下载带 SHA-256 清单的脱敏配置 JSON；可选写入私有 R2，不含指标历史、Session、审计和已知凭据，也不提供自动恢复               |
+| 完整 D1 归档   | 独立 Workflow 通过 D1 REST export 流式写入私有 R2；Token 不进入面板 Worker，默认无公网入口且不自动恢复                    |
 | 多系统 Agent | 主流 Linux、Alpine Linux、OpenWrt、群晖 DSM、飞牛 fnOS、FreeBSD、macOS、Windows；默认 Go 版本，保留 Shell/PowerShell 版本 |
 | 实时推送      | Durable Objects + WebSocket，Agent 上报后前端即时刷新                                      |
 | 告警通知      | 离线告警、恢复通知、到期提醒、资源负载告警                                                            |
@@ -90,6 +91,8 @@ flowchart LR
   Worker --> D1["Cloudflare D1<br/>servers / settings / history"]
   Worker <--> DO["Durable Object<br/>WebSocket broadcast"]
   Worker -.->|"optional allowlisted config backup"| R2["Private R2 Bucket"]
+  Backup["Isolated D1 Backup Workflow"] -.->|"REST export + private R2<br/>separate secret"| D1
+  Backup --> R2
   Worker --> Assets["Vue Dashboard<br/>Admin Panel"]
   Browser["Browser / Mobile / Widget"] <--> Worker
 ```
@@ -165,6 +168,10 @@ Go Agent 的完整更新记录见 [cfsm-agent releases](https://github.com/huila
 | `CORS_ALLOWED_ORIGINS` | 否  | 允许跨域访问 API 的来源，多个用英文逗号分隔 |
 
 若要让 GitHub Actions 声明可选私有 R2 binding，在 Actions Variables 中增加普通变量 `R2_BACKUP_BUCKET`；不要放进 Secrets。bucket 需提前创建，变量为空时不会声明 R2，也不影响管理页下载逻辑备份。完整步骤与生命周期建议见 [部署记录](docs/DEPLOYMENT.md#私有-r2-配置逻辑备份可选)。
+
+若要启用自动告警和周期流量快照的异步投递，先在同一 Cloudflare 账户创建 Queue，再增加普通 Actions Variable `NOTIFICATION_QUEUE_NAME`。变量为空时离线、恢复、资源、到期告警和已启用的流量快照继续同步发送；管理员测试通知始终同步。配置、免费额度和 at-least-once 边界见 [通知 Queue 部署说明](docs/DEPLOYMENT.md#通知-queue可选当前未创建)。
+
+完整 D1 SQL 归档是 [`ops/d1-backup-workflow`](ops/d1-backup-workflow/README.md) 下的独立组件，不随面板部署自动启用。当前只完成本地代码与 dry-run，未创建专用 R2、API Token、Secret 或 Workflow。启用时必须单独部署，不能把 `D1_REST_API_TOKEN` 写入本面板 Worker。
 
 推送到 `main` 分支会自动部署，也可以在 Actions 页面手动运行 `Deploy to Cloudflare Workers` 工作流。
 
@@ -315,8 +322,11 @@ npm run build:github-page
 - 离线告警：节点离线达到设定阈值后通知，恢复后发送恢复通知。
 - 到期提醒：服务器到期前 1 到 7 天内每天提醒，也可关闭。
 - 资源负载告警：按 CPU、内存、磁盘、上下行速率等指标配置规则。
+- 周期流量快照：可关闭或按 UTC 每日、每周、每月发送各服务器当前账期累计值、配额占比和合计；不是自然周期增量。
 
 配置后请先点击发送测试通知，再保存配置。
+
+可选 `NOTIFICATION_QUEUE` 只异步处理上述自动告警；Queue 未绑定时行为不变，测试通知始终同步返回结果。Queue 消息不包含通知凭据或正文，完整启用步骤见 [部署记录](docs/DEPLOYMENT.md#通知-queue可选当前未创建)。
 
 ## 安全建议
 
@@ -419,7 +429,7 @@ Go 版本和旧 Shell / PowerShell 版本卸载脚本只清理各自安装的服
 - 下载配置逻辑备份：导出非凭据设置、外观、服务器和 PingTask，带版本、记录计数和 SHA-256。
 - 保存到私有 R2：仅在 `BACKUP_BUCKET` 已绑定时可用；文件仍可能含服务器备注和探测目标，必须私密保存。
 
-配置逻辑备份不是完整 D1 快照，也不能自动导入。事故回滚与完整 SQL 导出按 [Cloudflare 运维手册](docs/OPERATIONS.md) 执行。
+配置逻辑备份不是完整 D1 快照，也不能自动导入。事故回滚、完整 SQL 导出和隔离 Workflow 归档按 [Cloudflare 运维手册](docs/OPERATIONS.md) 执行。
 
 从旧版本升级到包含 GPU、磁盘 IO、丢包率或新历史结构的版本后，如果页面提示数据库字段缺失，请先执行升级数据库，再升级 Agent。
 

@@ -172,6 +172,38 @@ export async function initDatabase(db) {
     `).run();
 
     await db.prepare(`
+      CREATE TABLE IF NOT EXISTS notification_jobs (
+        id TEXT PRIMARY KEY,
+        source TEXT NOT NULL,
+        message TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        provider TEXT,
+        status_code INTEGER,
+        error TEXT,
+        available_at INTEGER NOT NULL,
+        locked_until INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS traffic_report_runs (
+        period_key TEXT PRIMARY KEY,
+        schedule TEXT NOT NULL,
+        status TEXT NOT NULL,
+        notification_job_id TEXT,
+        error TEXT,
+        locked_until INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        completed_at INTEGER
+      )
+    `).run();
+
+    await db.prepare(`
       CREATE TABLE IF NOT EXISTS admin_sessions (
         id TEXT PRIMARY KEY,
         subject TEXT NOT NULL,

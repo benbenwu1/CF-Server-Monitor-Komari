@@ -7,6 +7,7 @@
 - D1 Time Travel 在 Workers Free 上保留 7 天，用于同一数据库的短期原地回滚。它不是可下载、可跨账户的备份。
 - Workers Logs 是短期故障定位工具；Free 为 200,000 observability events/天，保留 3 天。
 - Workers Traces 用于分析 Worker、Durable Object 和 D1 链路。2026-10-01 起，每个 span 作为一个 observability event，与 Logs 共用上述额度。
+- Workers Free 的 Queues 为 10,000 operations/天，消息保留固定 24 小时；当前只承接低频自动告警，不承接指标流。
 - Logs/Traces 可能被采样且会自动过期，不得代替 `audit_events` 中的产品安全审计。
 
 官方原文：
@@ -14,6 +15,8 @@
 - [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)
 - [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
 - [Workers Traces](https://developers.cloudflare.com/workers/observability/traces/)
+- [Queues Pricing](https://developers.cloudflare.com/queues/platform/pricing/)
+- [Queues Limits](https://developers.cloudflare.com/queues/platform/limits/)
 
 ## D1 Time Travel 恢复流程
 
@@ -126,9 +129,57 @@ npx wrangler r2 object get "$R2_BUCKET/$R2_KEY" \
 
 下载后执行上面的 SHA-256 校验。R2 生命周期是 bucket 级配置，不由 Worker 代码自动修改；配置与检查命令见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
-### 完整 D1 归档仍走独立路径
+### 隔离的完整 D1 Workflow 归档
 
-配置逻辑备份不替代第 3 步的 `wrangler d1 export`。Cloudflare 还提供 [D1 REST export + Workflows + R2 官方示例](https://developers.cloudflare.com/workflows/examples/backup-d1/)，但它需要具有 D1 export 权限的 API Token，并会导出整个数据库。若以后启用，应使用独立 Worker、独立最小权限 Secret 和私有 R2，不把 Token 放进当前面板 Worker；当前没有部署该组件。
+配置逻辑备份不替代第 3 步的 `wrangler d1 export`。完整 SQL 归档已在 [`ops/d1-backup-workflow`](../ops/d1-backup-workflow/README.md) 实现为独立 Worker/Workflow：D1 REST Token 只属于该组件，SQL 只流式写入专用私有 R2，默认 HTTP handler 始终返回 404，且不提供自动恢复。
+
+当前仅本地代码、13 项测试和 Wrangler dry-run 完成；没有创建 R2、API Token、Secret 或 Workflow，也没有改变线上面板 Worker。取得上线授权后仍必须逐项完成：
+
+1. 为目标账户创建仅含 D1 导出读权限的独立 Token，交互式写入该 Worker 的 `D1_REST_API_TOKEN` Secret。
+2. 创建不带 `r2.dev`/公共域名的专用 bucket，并对 `cfsm-d1-full-backups/` 配置有界生命周期。
+3. 把 schedule 放在真实低峰。D1 export 运行期间数据库可能暂时无法查询。
+4. 用 `wrangler workflows instances describe ... latest` 检查分步状态，不打印 step output 中的 signed URL。
+5. 下载 `.sql` 与 `.manifest.json` 后，在 manifest MD5 非空时先比对 R2 MD5，再生成并保存本地 SHA-256 sidecar。
+6. 只在维护窗口恢复，优先导入全新 D1 并验收后切换 binding；绝不由 Workflow、Cron 或 Actions 自动导入生产库。
+
+对象 key 使用 `cfsm-d1-full-backups/YYYY/MM/DD/<instance-id>.sql` 及同名 manifest。manifest 不含 Token、database ID 或 signed URL。完整资源创建、生命周期、状态、下载和恢复命令见子项目 README。
+
+## 通知 Queue 运维
+
+未配置 `NOTIFICATION_QUEUE` 时不需要任何 Queue 运维，自动告警和已启用的周期流量快照继续同步发送。启用后，Queue 只传 job ID，通知正文保存在 `notification_jobs` 最多 30 天；该正文可能包含服务器名称、告警数值、流量快照和时间，仍属于私密运行数据。不要在排查时执行 `SELECT message` 后把结果贴进日志或工单。
+
+只查看状态和数量：
+
+```bash
+npx wrangler d1 execute "$D1_NAME" --remote \
+  --command "SELECT status, COUNT(*) AS jobs, MIN(created_at) AS oldest_created_at, MAX(updated_at) AS newest_updated_at FROM notification_jobs GROUP BY status ORDER BY status;"
+```
+
+流量快照的幂等状态单独查看；不要查询报告正文：
+
+```bash
+npx wrangler d1 execute "$D1_NAME" --remote \
+  --command "SELECT schedule, status, COUNT(*) AS runs, MAX(updated_at) AS newest_updated_at FROM traffic_report_runs GROUP BY schedule, status ORDER BY schedule, status;"
+```
+
+状态含义：
+
+- `staged`：outbox 已写入，但入队尚未确认；每分钟 Cron 会每次最多恢复 10 条。
+- `queued`：已入队或等待平台级重试。
+- `processing`：consumer 已 claim；45 秒租约过期后可重新 claim。若持久化尝试预算已经耗尽且平台不再投递，Cron 会以 CAS 租约终结该 job，避免永久悬挂。
+- `delivered` / `failed`：最终状态；与 `notification_deliveries` 的最终记录一起保留 30 天。
+
+排查顺序：
+
+1. 先确认 Worker deployment 中同时存在 Queue producer 与 consumer，且 Queue 名一致。
+2. 查看 Queue backlog、consumer 错误和结构化事件；不要打印消息正文或 D1 设置。
+3. `staged` 持续增长通常表示 Queue binding/配额/可用性异常；`queued` 持续增长通常表示 consumer 或 Provider 异常。
+4. `missing_credential`、`missing_target`、`invalid_provider_config` 等永久配置错误会直接失败并确认消息；`network_error`、HTTP 408/425/429/5xx 才重试。
+5. 每次 Queue 尝试只请求 Provider 一次；同一 D1 job 的持久化总预算不会被重复物理消息重置，延迟为 60、120、240 秒，第四次失败写最终记录并确认，不依赖无限重试或 DLQ。
+
+周期流量快照按 UTC 周期键幂等，设置为每日/每周/每月后会在当前周期首次小时 Cron 发送；默认关闭。`traffic_report_runs` 的 `staged`、`queued`、`delivered`、`failed` 会跟随关联的通知 job 更新，保留 400 天。快照使用每台服务器自己的当前账期累计值和重置日，不代表统一的自然日/周/月增量。
+
+不要手工把 `processing` 改回 `queued`。先等 45 秒租约自然到期；若 Queue 消息仍存在，平台会重新投递；若第四次 claim 后发生内部异常且平台不再投递，Cron 会把过期 job 终结为 `attempt_budget_exhausted`。停用 Queue 前必须先确认没有 `staged` / `processing` job；直接移除 binding 后，Queue 恢复与耗尽预算终结器都会停止。Cloudflare Queues 是 at-least-once，Provider 成功后、D1 batch 提交前的崩溃可能造成重复通知，这是外部 API 无事务能力下的已知边界。
 
 ## Workers Logs 与 Traces
 
@@ -196,5 +247,5 @@ npx wrangler tail cf-server-monitor-komari \
 1. 确认 D1 Time Travel 仍可返回当前 bookmark。
 2. 确认 `.local-backups/` 未被 Git 跟踪，并按本地保留策略清理旧导出。
 3. 检查 Workers Logs/Traces 当日用量和采样率，不将 3 天平台保留误当成长期日志。
-4. 查看管理审计和通知投递记录，确认没有持续登录失败或 Provider 故障。
+4. 查看管理审计和通知投递记录；若启用 Queue，再检查 `notification_jobs` 状态计数，确认没有持续 `staged` / `queued` 积压或 Provider 故障。
 5. 若启用私有 R2，确认 `cfsm-logical-backups/` 生命周期仍生效，并抽样下载一份文件验证 manifest SHA-256。

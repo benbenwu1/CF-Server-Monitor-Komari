@@ -2,7 +2,7 @@ const CURRENT_VERSION = '2.8.4 Beta1';
 export const DEFAULT_SITE_TITLE = 'Cloudflare Server Monitor';
 export const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'favicon', 'custom_head', 'custom_script', 'csp_static', 'csp_api', 'display_mode', 'theme_options'];
 
-export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_time', 'wss_report_enabled', 'long_history_points', 'tg_notify', 'notification_provider', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
+export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_time', 'wss_report_enabled', 'long_history_points', 'tg_notify', 'notification_provider', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder', 'traffic_report_schedule', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
 
 const SITE_SETTINGS_TTL = 120 * 1000;
 const JWT_SECRET_MIN_LENGTH = 32;
@@ -10,6 +10,7 @@ export const TG_NOTIFY_MINUTES_MIN = 2;
 export const TG_NOTIFY_MINUTES_MAX = 30;
 export const TG_NOTIFY_LEGACY_TRUE_MINUTES = 5;
 export const EXPIRE_REMINDER_DAYS_MAX = 7;
+export const TRAFFIC_REPORT_SCHEDULES = ['off', 'daily', 'weekly', 'monthly'];
 export const LONG_HISTORY_POINT_OPTIONS = [60, 120, 180, 240];
 export const DEFAULT_LONG_HISTORY_POINTS = 120;
 export const RESOURCE_ALERT_WINDOW_MIN = 5;
@@ -68,6 +69,7 @@ const defaults = {
   custom_cm: 'gd-cm-dualstack.ip.zstaticcdn.com',
   custom_bd: '',
   expire_reminder: '0',
+  traffic_report_schedule: 'off',
   resource_alert_rules: [],
   theme_url: '',
   history_id_optimized: 'false',
@@ -108,6 +110,11 @@ export function normalizeTgNotify(value) {
 
 export function getTgNotifyMinutes(value) {
   return Number(normalizeTgNotify(value));
+}
+
+export function normalizeTrafficReportSchedule(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return TRAFFIC_REPORT_SCHEDULES.includes(normalized) ? normalized : 'off';
 }
 
 export function normalizeExpireReminder(value) {
@@ -445,6 +452,7 @@ export async function loadSiteSettings(db, options = {}) {
     }
     result.tg_notify = normalizeTgNotify(result.tg_notify);
     result.expire_reminder = normalizeExpireReminder(result.expire_reminder);
+    result.traffic_report_schedule = normalizeTrafficReportSchedule(result.traffic_report_schedule);
     result.long_history_points = normalizeLongHistoryPoints(result.long_history_points);
     result.resource_alert_rules = normalizeResourceAlertRules(result.resource_alert_rules);
     result.wss_report_enabled = normalizeBooleanSetting(result.wss_report_enabled);
@@ -529,6 +537,7 @@ export async function saveSiteOptions(db, updates) {
   delete siteOptions.show_long_history;
   siteOptions.tg_notify = normalizeTgNotify(siteOptions.tg_notify);
   siteOptions.expire_reminder = normalizeExpireReminder(siteOptions.expire_reminder);
+  siteOptions.traffic_report_schedule = normalizeTrafficReportSchedule(siteOptions.traffic_report_schedule);
   siteOptions.long_history_points = normalizeLongHistoryPoints(siteOptions.long_history_points);
   siteOptions.resource_alert_rules = normalizeResourceAlertRules(siteOptions.resource_alert_rules);
   siteOptions.wss_report_enabled = normalizeBooleanSetting(siteOptions.wss_report_enabled);

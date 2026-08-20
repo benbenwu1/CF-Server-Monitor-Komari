@@ -28,7 +28,7 @@
 | D1 | 5M rows read/天；100k rows written/天；总存储 5 GB；10 个数据库；单库 500 MB；Time Travel 7 天；每次 Free Worker 调用最多 50 个查询 | 指标历史的核心约束是每日写行，不是 5 GB 总容量 | 保留；优先控制写放大和查询读放大 |
 | Durable Objects | 100k requests/天；13,000 GB-s duration/天；Free 只能使用 SQLite-backed DO；SQLite 存储为 5M rows read、100k rows written、5 GB | 实时广播可用；标准 Agent WebSocket 会持续产生 duration | 保留；前端用 Hibernation，Agent WSS 默认按需开启 |
 | Queues | 2026-02-04 起进入 Free；10,000 operations/天；最多 10,000 queues；消息保留固定 24 小时 | 适合少量通知、导出、Webhook 重试；一次正常投递通常约 3 次 operation | P1，用于控制面异步任务，不中转每个指标包 |
-| Workflows | 与 Workers 共用 100k requests/天；每步 10 ms CPU；3,000 steps/天；1 GB-month 状态；单实例 100 MB；Free 每实例最多 1,024 steps；100 个运行中实例；完成状态保留 3 天；`step.sleep` 最长一年 | 很适合低频、可恢复的多步骤任务；Free 不收 steps/storage 超额费，但存储到达上限会报错 | P2，先用于备份/报告试验 |
+| Workflows | 与 Workers 共用 100k requests/天；每步 10 ms CPU；3,000 steps/天；1 GB-month 状态；单实例 100 MB；Free 每实例最多 1,024 steps；100 个运行中实例；完成状态保留 3 天；`step.sleep` 最长一年 | 很适合低频、可恢复的多步骤任务；Free 不收 steps/storage 超额费，但存储到达上限会报错 | P1 已完成隔离 D1 备份组件；复杂诊断留 P2 |
 | Workers KV | 100k reads/天；1,000 writes/天；1,000 deletes/天；1,000 list/天；1 GB | 适合低频配置、幂等键和缓存，不适合指标历史 | 有明确缓存需求时再引入 |
 | R2 | 10 GB-month/月；1M Class A/月；10M Class B/月；公网 egress 免费；免费额度只适用于 Standard storage | 适合备份 ZIP/JSON/SQL、审计归档、主题快照 | P1，先做可选备份目标 |
 | R2 Data Catalog | 需启用 R2 subscription；1M catalog operations/月；compaction 包含 10 GB 数据和 1M objects/月，另计普通 R2 费用 | 面向 Apache Iceberg 数据湖，不是 D1 备份或普通 R2 JSON 的目录服务 | P2 观察，不进入近期路线 |
@@ -87,13 +87,17 @@
 
 不适合放入 Queue 的内容：每个 Agent 的实时上报、每分钟历史样本、前端 WebSocket 广播。
 
+本项目当前实现把 Queue 限定在离线、恢复、资源和到期四类自动告警，以及默认关闭的每日/每周/每月流量快照。Producer 先写入 16 KiB UTF-8 上限的 D1 outbox，Queue 消息只含格式版本与随机 job ID，不携带通知正文、Webhook、Bot Token 或 Chat ID。Consumer 批次上限 5、单并发，逐条确认或重试；每次 Queue 尝试只发一次 Provider 请求，同一 D1 job 的四次持久化总预算不会被重复物理消息重置，避免原同步三次重试与平台重试相乘。管理员测试通知继续同步执行，保证管理页能立即返回真实成功或失败。
+
+没有 `NOTIFICATION_QUEUE` binding、消息超过 outbox 上限或入队失败时继续走原同步路径。staged 任务会由 Cron 有界恢复；最终成功/失败与投递记录原子写入 D1，30 天后清理。Cloudflare Queues 是 at-least-once，外部 Provider 调用无法与 D1 状态组成同一事务，因此“Provider 已成功、Worker 在落库前崩溃”的极端窗口仍可能产生重复通知，不能宣称 exactly-once。
+
 ### Workflows
 
 [Workflows Pricing](https://developers.cloudflare.com/workflows/reference/pricing/) 自 2026-08-10 起计量 steps 和 storage；Free 为 3,000 steps/day 与 1 GB-month，官方 [billing changelog](https://developers.cloudflare.com/changelog/post/2026-07-07-workflows-billing-updates/) 只承诺 Free 不会对超出 included amounts 的 steps/storage 收费，不能据此推导为“可无限免费超额”。价格页明确说明：Free 达到 storage limit 后，继续保存状态的实例会抛错。对 steps 超量的执行行为，当前价格页没有给出同等明确的兜底承诺，因此本项目把 3,000 steps/day 作为设计硬预算，而不是可依赖的软额度。[Workflows Limits](https://developers.cloudflare.com/workflows/reference/limits/) 另规定 Free 单实例 100 MB、1,024 steps、100 个运行中实例、完成状态保留 3 天，`step.sleep` 最长一年。
 
 它适合编排“导出 D1 → 校验 → 写 R2 → 通知”或“发起诊断 → 等 Agent → 聚合结果 → 通知”这类低频流程。每分钟执行的正常告警轮询和 D1 历史写入继续使用现有 Worker/Cron 更简单、更节省 steps。
 
-Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers.cloudflare.com/workflows/examples/backup-d1/) 官方示例：Workflow 调用 D1 REST export、轮询 signed URL，再把 SQL dump 流式写入 R2。它证明完整归档在 Free 可实现，但不改变权限边界：示例需要具有目标 D1 export 权限的 API Token，完整 SQL 也会包含当前 D1 中的凭据与运行数据。本项目先落地不需要该高权限 Token 的管理员脱敏配置 JSON；完整 Workflow 归档后置为独立组件。
+Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers.cloudflare.com/workflows/examples/backup-d1/) 官方示例：Workflow 调用 D1 REST export、轮询 signed URL，再把 SQL dump 流式写入 R2。它证明完整归档在 Free 可实现，但不改变权限边界：示例需要具有目标 D1 export 权限的 API Token，完整 SQL 也会包含当前 D1 中的凭据与运行数据。本项目已把它实现为 `ops/d1-backup-workflow` 隔离组件：Token 不进入面板 Worker，SQL 直传专用私有 R2，manifest 不含 Token/database ID/signed URL，也不自动恢复。当前仅本地完成，尚未创建资源、写 Secret 或部署。
 
 ### R2、Analytics Engine 与 Browser Run
 
@@ -136,7 +140,7 @@ Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers
 
 - Queues：通知投递记录、失败重试、Webhook 去耦。
 - R2：版本化 JSON/SQL 导出、备份清单和恢复校验。
-- 可选 Workflows：使用独立最小权限 Token，把低频完整 D1 REST export 和周期报告做成可恢复步骤；不把该 Token 注入当前面板 Worker。
+- 可选 Workflows：隔离的低频完整 D1 REST export 已本地完成；周期报告继续使用现有 Cron + 可选 Queue，不把 D1 REST Token 注入面板 Worker。
 
 ### P2：额度敏感或实验性质
 

@@ -3,6 +3,7 @@ import { clearServersListCache, getAllServers } from '../utils/cache.js';
 import { getExpireReminderDays, getResourceAlertConfig, getResourceAlertRuleThresholds, getTgNotifyMinutes, loadSiteSettings, debug } from '../utils/settings.js';
 import { detectBillingCycle, normalizeBillingCycle, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
 import { recordNotificationDelivery } from './notificationDelivery.js';
+import { dispatchNotification } from './notificationQueue.js';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
@@ -456,7 +457,11 @@ export async function sendNotification(settings, msg, context = null) {
     }, context);
   }
 
-  const result = await fetchWithRetry(request.url, request.options);
+  const configuredRetries = Number(context?.maxRetries);
+  const retries = Number.isInteger(configuredRetries) && configuredRetries > 0
+    ? Math.min(configuredRetries, MAX_RETRIES)
+    : MAX_RETRIES;
+  const result = await fetchWithRetry(request.url, request.options, retries);
   return finalizeNotificationResult({
     success: result.success,
     provider,
@@ -466,7 +471,17 @@ export async function sendNotification(settings, msg, context = null) {
   }, context);
 }
 
-export async function checkOfflineNodes(db) {
+function normalizeNotificationEnv(envOrDb) {
+  return envOrDb?.DB ? envOrDb : { DB: envOrDb };
+}
+
+async function sendAutomaticNotification(env, settings, message, source) {
+  return dispatchNotification(env, settings, message, source, sendNotification);
+}
+
+export async function checkOfflineNodes(envOrDb) {
+  const env = normalizeNotificationEnv(envOrDb);
+  const db = env.DB;
   const siteSettings = await loadSiteSettings(db);
   const tgNotifyMinutes = getTgNotifyMinutes(siteSettings.tg_notify);
 
@@ -529,13 +544,13 @@ export async function checkOfflineNodes(db) {
         .map(n => `• ${n.name} - ${formatLastReportTime(n.lastReportTime)}`)
         .join('\n');
       const msg = `⚠️ **节点离线告警** (${offlineNodes.length}个)\n\n${nodeList}`;
-      await sendNotification(siteSettings, msg, { db, source: 'offline_alert' });
+      await sendAutomaticNotification(env, siteSettings, msg, 'offline_alert');
     }
 
     if (recoveredNodes.length > 0) {
       const nodeList = recoveredNodes.map(n => `• ${n.name}`).join('\n');
       const msg = `✅ **节点恢复通知** (${recoveredNodes.length}个)\n\n${nodeList}\n\n**时间:** ${new Date().toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})}`;
-      await sendNotification(siteSettings, msg, { db, source: 'recovery' });
+      await sendAutomaticNotification(env, siteSettings, msg, 'recovery');
     }
   } catch (e) {
     console.error('离线检测失败:', e);
@@ -736,7 +751,7 @@ export async function checkResourceAlerts(env) {
 
     if (messageSections.length > 0) {
       const msg = `${messageSections.join('\n\n')}\n\n**时间:** ${formatCurrentTime()}`;
-      const delivery = await sendNotification(siteSettings, msg, { db, source: 'resource_alert' });
+      const delivery = await sendAutomaticNotification(env, siteSettings, msg, 'resource_alert');
       if (!delivery.success) {
         console.warn(JSON.stringify({
           event: 'notification.resource_alert.failed',
@@ -751,7 +766,9 @@ export async function checkResourceAlerts(env) {
   }
 }
 
-export async function checkExpiringServers(db) {
+export async function checkExpiringServers(envOrDb) {
+  const env = normalizeNotificationEnv(envOrDb);
+  const db = env.DB;
   const siteSettings = await loadSiteSettings(db);
 
   try {
@@ -800,7 +817,7 @@ export async function checkExpiringServers(db) {
       const serverList = expiringServers.map(s => `• ${s.name} - 剩余${s.days}天 (${s.expire_date})`).join('\n');
       const msg = `⏰ **服务器到期提醒** (${expiringServers.length}个)\n\n${serverList}`;
       debug(`[Cron] 发送到期提醒通知: ${msg}`);
-      await sendNotification(siteSettings, msg, { db, source: 'expiration' });
+      await sendAutomaticNotification(env, siteSettings, msg, 'expiration');
     }
   } catch (e) {
     console.error('到期检测失败:', e);

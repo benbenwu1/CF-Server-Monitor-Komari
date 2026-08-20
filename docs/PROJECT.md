@@ -6,7 +6,7 @@
 
 Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运行在被监控的 VPS/主机上，通过 HTTPS/WSS 单向上报到 Cloudflare。
 
-当前状态（2026-08-19）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已部署到独立测试 Worker 并完成线上验证。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+当前状态（2026-08-19）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已部署到独立测试 Worker 并完成线上验证。通知 Queue 与周期流量快照工作包已在本地完成，尚未创建 Queue、提交或部署；没有 binding 时通知仍走同步路径，流量快照默认关闭。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
 
@@ -61,7 +61,7 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] 免费额度面板使用统一常量，并按 2026-08-18 Cloudflare 官方 D1、Workers、Durable Objects 页面复核。
 - [x] 增加 D1 Time Travel、Workers Logs / Traces 采样与脱敏运维手册；UTC 00:00 Cron 幂等初始化后清理过期控制面记录。
 
-当前全量验证结果见下方 P1 工作包记录。管理审计已具备完整 API 和独立界面；通知仍为 Worker 内同步重试，Queues 异步投递保持后续候选。
+当前全量验证结果见下方 P1 工作包记录。管理审计已具备完整 API 和独立界面；通知 Queue 与周期流量快照均为可选且默认关闭的本地 P1 能力，尚未改变线上行为。
 
 ## P1 实施状态
 
@@ -84,7 +84,12 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] 免费额度：结果表采用复合主键 `WITHOUT ROWID` 且不建立二级索引，避免每条结果产生额外索引写；历史查询按主键范围读取并限制每任务结果数；60 秒间隔仍属于高消耗配置，应以 D1 每日用量面板为准。
 - [x] 配置逻辑备份：管理员可下载带版本、记录计数和 SHA-256 manifest 的 JSON；显式白名单包含非凭据设置、外观、服务器和 PingTask 配置，排除指标、结果、Session、审计、OAuth/TOTP 状态及已知凭据。
 - [x] 可选私有 R2：存在 `BACKUP_BUCKET` binding 时可手动保存同一份有界 JSON；未绑定时安全降级且不影响 Worker。服务器、分配关系和产物分别限制为 5000、50000 和 1 MiB，不提供自动恢复。
-- [ ] 后续工作包尚未选择；通知 Queue、周期流量报告，以及使用独立高权限 Secret 的完整 D1 REST export + Workflows 归档尚未开始。
+- [x] 通知 Queue：存在 `NOTIFICATION_QUEUE` binding 时，离线、恢复、资源、到期告警和周期流量快照写入 D1 outbox，再向 Queue 发送只含版本与 job ID 的消息；管理员测试通知继续同步返回真实结果。
+- [x] Queue consumer：逐条 claim、逐条 `ack()` / `retry()`；Provider 每次 Queue 尝试只调用一次，瞬时错误按 60/120/240 秒退避，初始投递加 3 次重试后写最终失败；永久配置错误不重试。
+- [x] Queue 兼容与幂等：未绑定、消息超过 16 KiB UTF-8、写入或入队失败时走同步兼容路径；staged outbox 由 Cron 恢复，完成状态与最终投递记录通过 D1 batch 原子落库，任务保留 30 天。
+- [x] 周期流量快照：管理端可选关闭/每日/每周/每月；按 UTC 周期键幂等，最多展开 50 台服务器，发送各服务器当前账期累计值、配额百分比和总量；默认关闭。
+- [x] 流量口径明确：每台服务器可有不同重置日，且精确历史只保留 7 天，因此不把快照误写成自然日/周/月增量；Queue staged/queued/delivered/failed 状态会同步回报告运行记录，记录保留 400 天。
+- [x] 使用独立 Secret 的完整 D1 REST export + Workflows 归档已在 `ops/d1-backup-workflow` 本地实现为隔离组件，不注入当前面板 Worker；默认 HTTP 404、流式写私有 R2、生成无 Secret manifest 且不自动恢复。
 
 Session 工作包为 53 项 Node 测试通过，生产构建和 Wrangler dry-run 通过，现已部署。升级后旧的无 `sid` JWT 会失效；旧前端单值 Token 会一次性迁移到当前选定站点。
 
@@ -94,7 +99,15 @@ GitHub OAuth 工作包将全量测试扩展到 62 项；生产构建、Agent 配
 
 PingTask 工作包全量门禁：Worker 71 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）和 Wrangler `deploy --dry-run` 全部通过；Agent 119 项 Go 测试、`go test -race ./internal/cfprobe`、`go vet ./...` 全部通过。两个仓库的 `git diff --check` 均通过。工作包已部署，当前未创建 PingTask，真实 Agent HTTP 指标上报保持正常。当前不兼容 Komari Agent 协议，也不增加 traceroute、NextTrace、MeshTrace、iperf、Shell 或任意远程命令。
 
-配置逻辑备份工作包全量门禁：Worker 72 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）、Wrangler `deploy --dry-run`、GitHub Actions YAML/内嵌 shell 语法和 `git diff --check` 全部通过。工作包已部署；线上实际导出 3150 字节 JSON，SHA-256 复算一致，未认证 401 和 R2 未绑定 400 均符合契约。它不是完整 D1 快照：D1 Time Travel 继续负责短期原地回滚，`wrangler d1 export` 继续负责受控的完整 SQL 导出；Cloudflare 2026 官方 D1 REST export + Workflows 示例因需要高权限 API Token，后置为独立备份组件，不把该 Token 注入当前面板 Worker。
+配置逻辑备份工作包全量门禁：Worker 72 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）、Wrangler `deploy --dry-run`、GitHub Actions YAML/内嵌 shell 语法和 `git diff --check` 全部通过。工作包已部署；线上实际导出 3150 字节 JSON，SHA-256 复算一致，未认证 401 和 R2 未绑定 400 均符合契约。它不是完整 D1 快照：D1 Time Travel 继续负责短期原地回滚，`wrangler d1 export` 继续负责受控的完整 SQL 导出；Cloudflare 2026 官方 D1 REST export + Workflows 示例在该检查点后置为独立组件，现已按下文状态在本地完成，Token 仍不进入面板 Worker。
+
+通知 Queue 工作包当前为本地完成状态：Queue 消息不含 Provider Token、Chat ID 或通知正文；consumer 每条消息独立处理，同一 D1 job 共享四次持久化尝试总预算，重复物理消息不会重置计数。外部发送成功后的崩溃窗口仍遵循 Cloudflare Queues 的 at-least-once 语义，极端情况下可能重复通知。当前线上没有创建 Queue 或声明 binding，因此行为尚未改变。全量门禁为 84 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）、无 Queue 与启用 Queue 两套 Wrangler dry-run、GitHub Actions YAML/内嵌 shell 语法和 `git diff --check` 全部通过。
+
+周期流量快照工作包同样只在本地完成。升级后的设置默认 `off`，不会自动发通知；启用时需要现有通知凭据。`traffic_report_runs` 只保存周期键、状态、关联 job ID 和安全错误码，不保存凭据；配置逻辑备份包含频率设置，但排除运行记录。
+
+隔离 D1 全量备份 Workflow 工作包已在本地完成：独立配置与 Secret、D1 REST polling、新旧完成响应兼容、401/403 永久失败、429/5xx/网络重试、稳定 UTC/instance R2 key、SQL 流式直传、R2 条件写、无 Token/database ID/signed URL manifest、私有 bucket/生命周期/状态/下载校验/新库恢复手册均已落地。子项目 13 项 Node 测试和 Wrangler 4.124.0 dry-run 通过；当前没有创建 R2、API Token、Secret 或 Workflow，也没有提交、推送或部署。
+
+三个本地工作包合并后的最终门禁：主 Worker 94 项 Node 测试、隔离备份组件 13 项 Node 测试、独立 Agent 配置测试、前端生产构建、主/子项目两套 `npm audit --audit-level=high`（均 0 漏洞）、主 Worker 无 Queue 与启用 Queue 两套 Wrangler dry-run、隔离 Workflow Wrangler 4.124.0 dry-run、GitHub Actions YAML 与 6 段内嵌 shell 语法、`git diff --check` 全部通过。所有改动仍未提交、未推送、未创建远端 Queue/R2/API Token/Secret/Workflow，也未部署。
 
 ## 明确不做
 

@@ -1,5 +1,11 @@
 import { initDatabase, weeklyCleanup, getMetricsHistory, clearHistory } from './database/schema.js';
-import { checkOfflineNodes, checkExpiringServers, checkResourceAlerts } from './services/notification.js';
+import { checkOfflineNodes, checkExpiringServers, checkResourceAlerts, sendNotification } from './services/notification.js';
+import {
+  cleanupNotificationJobs,
+  finalizeExpiredNotificationJobs,
+  processNotificationQueueBatch,
+  recoverStagedNotificationJobs
+} from './services/notificationQueue.js';
 import { cleanupAuditEvents } from './services/audit.js';
 import { cleanupNotificationDeliveries } from './services/notificationDelivery.js';
 import { cleanupAdminSessions } from './services/adminSession.js';
@@ -20,6 +26,7 @@ import { getCorsAllowedOrigins, createOptionsResponse, applyCors } from './utils
 import { getRemoteVersion } from './utils/version.js';
 import { cleanupGithubOAuthStartLimits, isGithubOAuthAvailable } from './services/githubOAuth.js';
 import { cleanupPingTaskResults } from './services/pingTasks.js';
+import { cleanupTrafficReportRuns, runScheduledTrafficReport } from './services/trafficReport.js';
 // Durable Objects: 实时指标广播
 // 显式 import + extends，确保 wrangler 静态分析器能在入口文件直接识别此 DO 类
 import { MetricsBroadcaster as _MetricsBroadcaster }
@@ -424,6 +431,14 @@ export default {
 
   async scheduled(event, env, ctx) {
     await initDatabase(env.DB);
+    const finalizedNotificationJobs = await finalizeExpiredNotificationJobs(env);
+    if (finalizedNotificationJobs > 0) {
+      debug(`[Cron] 已终结耗尽重试预算的通知任务: jobs=${finalizedNotificationJobs}`);
+    }
+    const recoveredNotificationJobs = await recoverStagedNotificationJobs(env);
+    if (recoveredNotificationJobs > 0) {
+      debug(`[Cron] 已恢复通知 Queue 任务: jobs=${recoveredNotificationJobs}`);
+    }
     const cron = event.cron;
     debug(`[Cron] 定时任务触发: ${cron}`);
 
@@ -437,7 +452,7 @@ export default {
         debug('[Cron] 每周日0:00-0:05表轮换期间，跳过离线节点检测');
       } else {
         debug('[Cron] 开始执行离线节点检测');
-        await checkOfflineNodes(env.DB);
+        await checkOfflineNodes(env);
         debug('[Cron] 离线节点检测完成');
         debug('[Cron] 开始执行资源负载告警检测');
         await checkResourceAlerts(env);
@@ -447,14 +462,28 @@ export default {
       const oauthStartLimitsDeleted = await cleanupGithubOAuthStartLimits(env.DB);
       debug(`[Cron] GitHub OAuth 发起限流记录清理完成: limits=${oauthStartLimitsDeleted}`);
 
+      try {
+        const trafficReport = await runScheduledTrafficReport(env, now, sendNotification);
+        if (trafficReport.sent) {
+          debug(`[Cron] 周期流量快照已发送: period=${trafficReport.period_key}`);
+        }
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: 'traffic_report.scheduled_failed',
+          error: error?.name || 'Error'
+        }));
+      }
+
       if (hour === 0) {
-        const [auditDeleted, deliveryDeleted, sessionDeleted, pingResultsDeleted] = await Promise.all([
+        const [auditDeleted, deliveryDeleted, notificationJobsDeleted, trafficReportRunsDeleted, sessionDeleted, pingResultsDeleted] = await Promise.all([
           cleanupAuditEvents(env.DB),
           cleanupNotificationDeliveries(env.DB),
+          cleanupNotificationJobs(env.DB),
+          cleanupTrafficReportRuns(env.DB),
           cleanupAdminSessions(env.DB),
           cleanupPingTaskResults(env.DB)
         ]);
-        debug(`[Cron] 控制面记录清理完成: audit=${auditDeleted}, deliveries=${deliveryDeleted}, sessions=${sessionDeleted}, ping_results=${pingResultsDeleted}`);
+        debug(`[Cron] 控制面记录清理完成: audit=${auditDeleted}, deliveries=${deliveryDeleted}, notification_jobs=${notificationJobsDeleted}, traffic_report_runs=${trafficReportRunsDeleted}, sessions=${sessionDeleted}, ping_results=${pingResultsDeleted}`);
       }
 
       if (day === 0 && hour === 0) {
@@ -465,7 +494,7 @@ export default {
       
       if (hour === 12) {
         debug('[Cron] 开始执行服务器到期检测');
-        await checkExpiringServers(env.DB);
+        await checkExpiringServers(env);
         debug('[Cron] 服务器到期检测完成');
       }
     }else if(env.DEBUG == 1){
@@ -475,9 +504,14 @@ export default {
         debug('[Cron DEBUG] 每周数据清理任务完成');
       } else if (cron === '0 12 * * *') {
         debug('[Cron DEBUG] 开始执行服务器到期检测');
-        await checkExpiringServers(env.DB);
+        await checkExpiringServers(env);
         debug('[Cron DEBUG] 服务器到期检测完成');
       }
     }
+  },
+
+  async queue(batch, env, ctx) {
+    await initDatabase(env.DB);
+    await processNotificationQueueBatch(batch, env, sendNotification);
   }
 };

@@ -741,6 +741,13 @@ const normalizeExpireReminderSetting = (value) => {
 
 const isExpireReminderEnabled = (value) => normalizeExpireReminderSetting(value) !== '0'
 
+const normalizeTrafficReportScheduleSetting = (value) => {
+  const normalized = String(value || '').trim().toLowerCase()
+  return ['off', 'daily', 'weekly', 'monthly'].includes(normalized) ? normalized : 'off'
+}
+
+const isTrafficReportEnabled = (value) => normalizeTrafficReportScheduleSetting(value) !== 'off'
+
 const normalizeLongHistoryPointsSetting = (value) => {
   const points = Number(value)
   return String(
@@ -954,6 +961,7 @@ const settings = ref({
   long_history_points: String(HISTORY.DEFAULT_LONG_RANGE_POINTS),
   tg_notify: '0',
   expire_reminder: '0',
+  traffic_report_schedule: 'off',
   resource_alert_rules: [],
   notification_provider: 'auto',
   has_notification_credential: false,
@@ -1538,6 +1546,7 @@ const loadSettings = async () => {
         long_history_points: normalizeLongHistoryPointsSetting(settingsData.long_history_points),
         tg_notify: normalizeTgNotifySetting(settingsData.tg_notify),
         expire_reminder: normalizeExpireReminderSetting(settingsData.expire_reminder),
+        traffic_report_schedule: normalizeTrafficReportScheduleSetting(settingsData.traffic_report_schedule),
         resource_alert_rules: normalizeResourceAlertRulesSetting(settingsData.resource_alert_rules),
         notification_provider: settingsData.notification_provider || 'auto',
         has_notification_credential: settingsData.has_notification_credential === true,
@@ -1643,7 +1652,7 @@ const saveSettings = async () => {
     return
   }
 
-  if (isTgNotifyEnabled(settings.value.tg_notify) || isExpireReminderEnabled(settings.value.expire_reminder) || isResourceAlertEnabled(settings.value.resource_alert_rules)) {
+  if (isTgNotifyEnabled(settings.value.tg_notify) || isExpireReminderEnabled(settings.value.expire_reminder) || isTrafficReportEnabled(settings.value.traffic_report_schedule) || isResourceAlertEnabled(settings.value.resource_alert_rules)) {
     if (
       (!settings.value.tg_bot_token || settings.value.tg_bot_token.trim().length === 0) &&
       !settings.value.has_notification_credential
@@ -1697,6 +1706,7 @@ const saveSettings = async () => {
       long_history_points: normalizeLongHistoryPointsSetting(settings.value.long_history_points),
       tg_notify: normalizeTgNotifySetting(settings.value.tg_notify),
       expire_reminder: normalizeExpireReminderSetting(settings.value.expire_reminder),
+      traffic_report_schedule: normalizeTrafficReportScheduleSetting(settings.value.traffic_report_schedule),
       resource_alert_rules: normalizeResourceAlertRulesSetting(settings.value.resource_alert_rules),
       notification_provider: settings.value.notification_provider || 'auto',
       turnstile_enabled: settings.value.turnstile_enabled ? 'true' : 'false',
