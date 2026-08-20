@@ -144,11 +144,10 @@ Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers
 
 ### P2：额度敏感或实验性质
 
-- Analytics Engine：CFSM 自身运行遥测和高基数统计。
-- Browser Run：低频网页可用性与截图检查。
-- R2 Data Catalog + R2 SQL：只有形成大规模 Parquet/Iceberg 冷历史后再做数据湖实验。
-- Secrets Store：多 Worker、多 Provider 后集中管理密钥。
-- Workflows：复杂网络诊断任务编排。
+- 近期推进：Analytics Engine 只做 best-effort 匿名影子遥测，不替代 D1、审计或 outbox。
+- 条件试点：Browser Run 仅在出现“HTTP 200 但页面不可用”的真实需求后做受限低频检查；Secrets Store 仅在至少 3 个组件共享或轮换 5 个以上 Secret 后迁移。
+- 后置：复杂 Workflows、R2 Data Catalog + R2 SQL，分别等待多阶段流程和大规模 Parquet/Iceberg 冷历史需求。
+- 完整 P2 排序、启动门槛和排除项见 [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)。
 
 ## 明确不采用
 

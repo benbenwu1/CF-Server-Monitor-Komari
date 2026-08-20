@@ -1,6 +1,6 @@
 # Cloudflare 运维手册
 
-> 最后核验：2026-08-19。本文只使用公开资源名和占位符，不应粘贴 API Token、`API_SECRET`、JWT、通知凭据或数据库中的 Secret。
+> 最后核验：2026-08-20。本文只使用公开资源名和占位符，不应粘贴 API Token、`API_SECRET`、JWT、通知凭据或数据库中的 Secret。
 
 ## 能力边界
 
@@ -241,6 +241,21 @@ npx wrangler tail cf-server-monitor-komari \
 - Agent 安装命令、完整请求体、D1 设置行和导出内容。
 
 错误日志使用稳定代码（如 `missing_target`、`network_error`、`HTTP_503`），不直接输出未信任异常的完整 message/stack。
+
+## 扩容前用量门禁
+
+开发阶段首个 Worker/D1/DO 用量基线见 [`usage-baseline-2026-08-20.md`](usage-baseline-2026-08-20.md)。它证明当前单节点环境有充足容量，但不等于未来扩容授权。
+
+实际新增节点、缩短 Agent 上报周期或启用高频 PingTask 前：
+
+1. 使用 Cloudflare GraphQL Analytics API 按精确 Worker script、D1 database ID 和 Durable Object namespace 过滤，连续读取此前 7 个完整 UTC 日；不得混入同账户的旧 `cf-komari` 或其他 Worker。
+2. Worker requests、D1 rows read/write、DO estimated billable requests 和 DO duration 的单日峰值必须低于对应 Free 额度的 50%。
+3. 主 Worker 不得出现 `exceededResources` 或用户可见 5xx；DO hibernation `scriptThrewException` / `internalError` 不得呈增长趋势。
+4. 按计划节点数、上报间隔和 PingTask 数量重新计算 D1 写入。10 个 60 秒 PingTask 每节点理论上可新增约 14,400 条结果/日，不能沿用无任务时的线性节点倍数。
+5. 若启用 Queue，将 Queue operations/day 单独加入门禁；若部署隔离备份 Workflow，将 Workflow requests、steps、duration、storage 和失败实例加入门禁。
+6. 将采集窗口、资源版本、峰值、异常状态和结论追加到新的日期化基线文档，再执行扩容。
+
+该门禁是扩容动作的运维前置条件，不是当前 P1 代码完成条件。资源尚未运行满 7 个完整 UTC 日时，必须等待真实数据产生，不能用零值、预测值或部署前日期代替。
 
 ## 每周运维检查
 

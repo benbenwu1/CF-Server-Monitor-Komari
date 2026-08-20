@@ -58,18 +58,18 @@
 | CPU、RAM、swap、磁盘、网络、load、uptime | 成熟 | 完整 | 已真实上报 | 5 | 1 | 3 | 1 | 否 | 保留 | [K-Model] [C-Schema] [Live] |
 | 磁盘 IO、进程、TCP/UDP 连接 | 成熟 | 完整；磁盘 IO 依平台 | 已真实上报/展示 | 4 | 1 | 3 | 1 | 否 | 保留 | [K-Model] [C-Agent] [Live] |
 | 多 GPU 利用率历史 | 成熟 | 完整保存 `gpu_info` JSON，多卡曲线 | 测试节点无 GPU，未实机验 | 3 | 1 | 3 | 1 | 否 | 保留 | [K-GPU] [C-Schema] [C-Agent] |
-| GPU 温度、逐卡显存总量/占用 | 成熟 | 缺失；当前 Agent 只有 `name/info/id` | 不存在 | 3 | 3 | 3 | 1 | 是 | P2 | [K-GPU] [C-Agent] |
-| 节点静态信息：CPU、核心、虚拟化、OS、内核、架构、IP、地区 | 成熟 | 大部分有；物理核心/虚拟化语义较弱 | 已验证主要字段 | 4 | 2 | 1 | 2 | 可选 | P2 | [K-Model] [C-Agent] [Live] |
+| GPU 温度、逐卡显存总量/占用 | 成熟 | 缺失；当前 Agent 只有 `name/info/id` | 不存在 | 3 | 3 | 3 | 1 | 是 | **排除**；用户于 2026-08-20 明确不进入路线图 | [K-GPU] [C-Agent] |
+| 节点静态信息：CPU、核心、虚拟化、OS、内核、架构、IP、地区 | 成熟 | 大部分有；物理核心/虚拟化语义较弱 | 已验证主要字段 | 4 | 2 | 1 | 2 | 可选 | **P2.1 近期推进** | [K-Model] [C-Agent] [Live] |
 | 历史指标与查询 | 成熟，独立 metric store | 7 天 D1 历史、长时段抽样、播放 | 66 条，持续增长 | 5 | 2 | 5 | 1 | 否 | 保留 | [K-Rollup] [C-Schema] [Live] |
 | raw + 1m/5m/1h/day rollup、TDigest 百分位 | 成熟 | 无同等 rollup；按查询窗口稀疏采样 | 不存在 | 3 | 5 | 5 | 1 | 否 | 不照搬 | [K-Rollup] [C-Sampling] |
-| 单指标 retention 管理 | 成熟，可设为 0 清数据 | 站点统一 7 天，无单指标策略 | 不存在 | 3 | 4 | 4 | 2 | 否 | P2 | [K-Metric] [K-Rollup] [C-Schema] |
+| 单指标 retention 管理 | 成熟，可设为 0 清数据 | 站点统一 7 天，无单指标策略 | 不存在 | 3 | 4 | 4 | 2 | 否 | 后置；如重启改做指标组分层 | [K-Metric] [K-Rollup] [C-Schema] |
 | SQLite / MySQL / PostgreSQL 指标后端与迁移 | 成熟 | 仅 D1 | D1 已绑定 | 2 | 5 | 5 | 3 | 否 | 不做 | [K-Metric] [Live] |
 | 节点 CRUD、排序、分组、标签、隐藏 | 成熟 | 完整，另有批量删除和导入导出 | CRUD/排序/隐藏已验 | 5 | 1 | 1 | 2 | 否 | 保留 | [K-Router] [C-Admin] [Live] |
 | 内部备注与公开备注分离 | 成熟 | 只有单一 `note` | 未分离 | 4 | 2 | 1 | 2 | 否 | P0 | [K-Model] [C-Schema] |
 | 价格、币种、周期、自动续费、到期日 | 成熟 | 完整 | 字段和自动续期逻辑已部署 | 4 | 1 | 1 | 1 | 否 | 保留 | [K-Model] [C-Notify] |
 | 流量限制算法 | 成熟：`sum/max/min/up/down` | `total/ul/dl/max`，等价四种，缺 `min` | 默认 `total` | 4 | 1 | 1 | 1 | 否 | P0 | [K-Model] [C-Traffic] [Live] |
-| Agent Token 与自动发现注册 key | 成熟 | 每节点 ID/Secret；无 AutoDiscovery key | 独立测试 Secret 已用 | 3 | 3 | 2 | 3 | 是 | P2 | [K-Router] [C-Agent] [Live] |
-| GeoIP Provider：ipinfo/ip-api/geojs/MMDB/empty | 成熟 | 主要依赖 Agent/Cloudflare 地区与前端旗帜 | 地区已显示；无 Provider 管理 | 2 | 3 | 2 | 2 | 可选 | P2 | [K-Settings] [C-Agent] |
+| Agent Token 与自动发现注册 key | 成熟 | 每节点 ID/Secret；无 AutoDiscovery key | 独立测试 Secret 已用 | 3 | 3 | 2 | 3 | 是 | 后置；只接受短时一次性 enrollment token | [K-Router] [C-Agent] [Live] |
+| GeoIP Provider：ipinfo/ip-api/geojs/MMDB/empty | 成熟 | 主要依赖 Agent/Cloudflare 地区与前端旗帜 | 地区已显示；无 Provider 管理 | 2 | 3 | 2 | 2 | 可选 | 排除第三方 Provider 矩阵 | [K-Settings] [C-Agent] |
 
 ### Ping 与网络诊断
 
@@ -78,10 +78,10 @@
 | 固定电信/联通/移动与可选 BD 延迟、丢包 | 非同型；由通用 PingTask 覆盖 | 完整 | 三网已真实上报，BD 留空 | 5 | 1 | 3 | 1 | 否 | 保留 | [K-Ping] [C-Agent] [Live] |
 | 任意 ICMP/TCP/HTTP PingTask | 成熟：CRUD、排序、间隔、权重、节点范围、历史统计 | 缺失；只有四个固定目标 | 不存在 | 5 | 4 | 4 | 2 | 是 | P1 | [K-Ping] [C-Agent] |
 | 新节点默认应用任务 | 成熟 | 无 | 不存在 | 3 | 3 | 2 | 2 | 是 | 随 PingTask P1 | [K-Ping] |
-| NextTrace | **协议预留**：类型和测试存在，未发现注册/路由/调度 | 无 | 不存在 | 3 | 5 | 4 | 3 | 是 | P2 独立设计 | [K-NetProto] |
-| MeshTrace | **协议预留**：同上 | 无 | 不存在 | 2 | 5 | 5 | 4 | 是 | P2/暂缓 | [K-NetProto] |
+| NextTrace | **协议预留**：类型和测试存在，未发现注册/路由/调度 | 无 | 不存在 | 3 | 5 | 4 | 3 | 是 | 排除当前 P2；真实需求需独立 RFC | [K-NetProto] |
+| MeshTrace | **协议预留**：同上 | 无 | 不存在 | 2 | 5 | 5 | 4 | 是 | 排除当前 P2；真实需求需独立 RFC | [K-NetProto] |
 | iperf3 | **仅方法名预留**，未见完整参数/结果产品链路 | 无 | 不存在 | 2 | 5 | 5 | 4 | 是 | 不以 Komari 为参考实现 | [K-NetProto] |
-| 低频网页可用性/截图检查 | 无对应核心能力 | 无 | 不存在 | 3 | 4 | 4 | 2 | 否 | P2，Browser Run | [CF-Free] |
+| 低频网页可用性/截图检查 | 无对应核心能力 | 无 | 不存在 | 3 | 4 | 4 | 2 | 否 | P2 条件试点，Browser Run | [CF-Free] |
 
 ### 通知与事件
 
@@ -111,7 +111,7 @@
 | 私有站点临时分享 `temp_key` | **局部链路**：cookie/查询参数校验存在，未找到生成或管理 API | 无同型能力 | 不存在 | 2 | 3 | 1 | 4 | 否 | 不按成熟能力排期 | [K-TempShare] |
 | Turnstile 与 CSP | Komari 无同型 Turnstile；有自身 Origin/会话策略 | 完整 | 代码已部署；当前未配置 widget/secret | 5 | 1 | 1 | 2 | 否 | 保留 | [C-Auth] [C-CSP] [Live] |
 | 管理操作审计日志 | 成熟，类型筛选与分页 | 无产品审计表 | 不存在 | 5 | 3 | 3 | 2 | 否 | P0 | [K-Audit] |
-| 访客审计、字段边界、每 IP token bucket | 成熟，默认关闭 | 无 | 不存在 | 3 | 4 | 4 | 3 | 否 | P2 | [K-VisitorAudit] |
+| 访客审计、字段边界、每 IP token bucket | 成熟，默认关闭 | 无 | 不存在 | 3 | 4 | 4 | 3 | 否 | 排除原始访客日志；匿名趋势随 Analytics Engine | [K-VisitorAudit] |
 | 访客 IP 返回控制 | 成熟 | 无独立等价开关 | 不存在 | 3 | 2 | 1 | 2 | 否 | P1 | [K-Settings] |
 | Workers Logs / Traces | 非 Cloudflare 架构 | 可由平台提供，仓库未形成完整运维策略 | Worker 在运行；未作为长期审计 | 4 | 2 | 2 | 2 | 否 | P0 | [CF-Free] |
 
@@ -120,8 +120,8 @@
 | 能力 | Komari 状态 | 当前 CF 源码 | 当前线上 | 价值 | 复杂 | 额度 | 风险 | Agent 改动 | 优先级 | 证据 |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | 主题安装/删除/启用/更新/导入、市场源 | 成熟 | 远程主题商店、commit 版本、预览、Mikus | 远程主题未配置；内置主题已验 | 4 | 2 | 2 | 3 | 否 | 保留现有模型 | [K-Router] [C-Theme] [Live] |
-| managed/raw HTML/redirect 主题、多语言 manifest、丰富配置类型 | 成熟 | 部分：反代 `index.html/assets` + `theme_options` | 未配置第三方主题 | 3 | 4 | 2 | 4 | 否 | P2 按需求补 | [K-Theme] [C-Theme] |
-| 自定义 head/body/favicon | 成熟 | 主题可控制前端；无完全等价后台模型 | 部分 | 2 | 2 | 1 | 4 | 否 | P2 | [K-Settings] [C-Theme] |
+| managed/raw HTML/redirect 主题、多语言 manifest、丰富配置类型 | 成熟 | 部分：反代 `index.html/assets` + `theme_options` | 未配置第三方主题 | 3 | 4 | 2 | 4 | 否 | 后置且仅补 schema 驱动配置；raw/redirect 排除 | [K-Theme] [C-Theme] |
+| 自定义 head/body/favicon | 成熟 | 管理员已有 `custom_head`、`custom_script`、`favicon` | 已部署 | 2 | 2 | 1 | 4 | 否 | 保留现有，不向主题包扩大权限 | [K-Settings] [C-Theme] |
 | 服务端插件、市场、配置、日志、公开/管理页 | 成熟 | 无 | 不存在 | 2 | 5 | 5 | 5 | 否 | 不做 | [K-Plugin] |
 | JS/Node-like runtime、HTTP/WS hook、进程、监听、文件系统权限 | 成熟但高权限 | Workers 不适配 | 不存在 | 1 | 5 | 5 | 5 | 否 | 不做 | [K-Plugin] |
 | Web 终端 | 成熟 | 无 | 不存在 | 2 | 5 | 5 | 5 | 是 | 不做 | [K-Router] |
@@ -194,15 +194,16 @@
 
 Session、TOTP、GitHub OAuth、PingTask 与配置逻辑备份已形成独立 P1 检查点并部署到独立测试 Worker；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 已在提交 `58aa764` 中推送，但尚未创建远端 Queue/R2/API Token/Secret/Workflow，也尚未部署。未配置的 TOTP、GitHub OAuth、R2 和 Queue 保持关闭，流量快照默认关闭。generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
 
-### P2：实验或额度敏感
+### P2：按价值与启动门槛分档
 
-- Analytics Engine：CFSM 自身用量、告警统计、高基数遥测。
-- Browser Run：每天数次的网页可用性、内容检查或截图。
-- Workflows：完整 D1 备份已完成隔离 P1 组件；P2 仅保留报告/复杂诊断编排。
-- R2 Data Catalog + R2 SQL：只有形成大规模 Parquet/Iceberg 冷历史后再实验，不作为 D1 或普通 R2 备份的替代。
-- Secrets Store：Provider 密钥和 Worker 数量增加后再迁移。
-- GPU 温度与逐卡显存：先扩 Agent，再扩历史和图表。
-- traceroute/mesh：只有真实用户需求后独立设计，不能复用一个“协议预留”作为成熟方案。
+权威分析见 [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)。当前排序：
+
+- **近期推进**：P2.1 节点静态信息补齐；P2.2 Analytics Engine 影子遥测。
+- **条件试点**：Browser Run 低频网页检查；Secrets Store 共享密钥治理。
+- **后置**：复杂 Workflows、R2 Data Catalog + R2 SQL、指标组分层 retention、短时 AutoDiscovery enrollment token、受限主题 schema 扩展。
+- **排除**：GPU 温度与逐卡显存；当前 P2 的 traceroute/mesh；第三方 GeoIP Provider 矩阵；原始访客审计；主题包 raw HTML/redirect/任意注入能力。
+
+P2 不自动开工。先部署并验收已完成的 P1 Queue、周期流量快照和隔离备份 Workflow，再逐项满足启动门槛。
 
 ## 当前线上快照
 

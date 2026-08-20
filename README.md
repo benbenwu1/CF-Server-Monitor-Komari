@@ -605,6 +605,9 @@ echo <CF_CDN_IP> <你的探针域名> | sudo tee -a /etc/hosts
 - [https://github.com/huilang-me/cfsm-agent](cfsm-agent)：Go 版本 Agent 配置、升级、日志与排障
 - [theme-develop.md](theme-develop.md)：第三方主题开发
 - [test/README.md](test/README.md)：本地模拟数据和测试流程
+- [项目基线](docs/PROJECT.md)：P0/P1 完成状态、部署边界和第一阶段验收
+- [Cloudflare 用量基线](docs/usage-baseline-2026-08-20.md)：Worker/D1/DO 实际用量和扩容门禁
+- [P2 推进优先级](docs/p2-priorities-2026-08-20.md)：近期推进、条件试点、后置和排除项
 
 ## 社区
 

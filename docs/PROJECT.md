@@ -8,15 +8,17 @@ Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运
 
 当前状态（2026-08-20）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已部署到独立测试 Worker 并完成线上验证。通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 已完成本地实现与最终门禁，并随提交 `58aa764` 推送到 `origin/codex/reboot-foundation`；当前尚未创建 Queue、专用 R2、D1 REST API Token、Secret 或 Workflow，也尚未部署这三个工作包。没有 Queue binding 时通知仍走同步路径，流量快照默认关闭。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
-Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
+Phase 0 之后的功能开发以以下研究与运维基线为准：
 
 - [`capability-roadmap-2026.md`](capability-roadmap-2026.md)：Komari 全能力、当前 Fork 源码、线上启用状态和 P0/P1/P2 评分矩阵。
 - [`cloudflare-free-platform-2026.md`](cloudflare-free-platform-2026.md)：Cloudflare 官方免费额度、新增产品能力与本项目采用边界。
 - [`github-oauth-official-2026.md`](github-oauth-official-2026.md)：GitHub OAuth 与 Cloudflare Workers 的 2026 官方协议、安全和部署依据。
 - [`logical-backup-2026.md`](logical-backup-2026.md)：D1/Time Travel/完整 SQL 导出与脱敏配置备份的边界，以及可选私有 R2 契约。
 - [`OPERATIONS.md`](OPERATIONS.md)：D1 Time Travel 恢复、Workers Logs/Traces 采样、脱敏和配额运维手册。
+- [`usage-baseline-2026-08-20.md`](usage-baseline-2026-08-20.md)：当前 Worker/D1/DO 实际用量、容量判断和扩容前门禁。
+- [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)：P2 四档优先级、启动门槛和明确排除项。
 
-控制面 P0、独立管理审计界面和全部 P1 代码已推送到 `codex/reboot-foundation`。其中 Session、TOTP、GitHub OAuth、PingTask 和配置逻辑备份已部署到独立测试环境；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 尚未部署。后续仍按路线图逐个切片推进，不自动扩展到 P2，也不自动部署。
+控制面 P0、独立管理审计界面和全部 P1 代码已推送到 `codex/reboot-foundation`。其中 Session、TOTP、GitHub OAuth、PingTask 和配置逻辑备份已部署到独立测试环境；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 尚未部署。P2 近期只推荐节点静态信息补齐和 Analytics Engine 影子遥测，仍需单独立项；GPU 温度与逐卡显存永久排除。后续按路线图逐个切片推进，不自动部署。
 
 ## 上游关系
 
@@ -41,7 +43,7 @@ Phase 0 之后的功能开发以两份 2026-08-18 研究基线为准：
 
 - P0：登录成功/失败安全事件、管理操作审计、内部/公开备注、`min` 流量算法、通知投递状态。
 - P1：Session、TOTP、GitHub OAuth 或 generic OIDC、任意 ICMP/TCP/HTTP PingTask、D1 导出与可选 R2 备份。
-- P2：Analytics Engine 遥测、Browser Run 低频网页检查、Workflows 编排、完整 GPU 温度与逐卡显存。
+- P2：节点静态信息补齐、Analytics Engine 遥测，以及有真实需求后再试点的 Browser Run / Workflows；GPU 温度与逐卡显存已明确排除。
 - 保留 CFSM 的主题模型，不把 Komari 的任意服务端代码引入 Workers。
 
 每个候选功能须先通过以下检查：Cloudflare 免费额度、D1 读写量、Durable Objects 持续时长、权限模型、与上游合并成本。
@@ -112,6 +114,7 @@ PingTask 工作包全量门禁：Worker 71 项 Node 测试、独立 Agent 配置
 ## 明确不做
 
 - WebSSH、远程 shell、远程命令和反向主控通道。
+- GPU 温度、逐卡显存总量/占用及其 Agent 探测、历史表和图表；保留现有多 GPU 利用率历史，不扩展硬件传感器范围。
 - 把 Komari 的本地 SQLite/PostgreSQL、进程管理、嵌入式 JavaScript 运行时或插件后端直接搬到 Workers。
 - 复用上一版 `/Users/yong/Desktop/AI-Yong/cf-komari` 的协议适配层或数据库。
 - 修改或停止现有的 `https://vps.i404.dev` 与其 Komari Agent。
@@ -130,4 +133,6 @@ PingTask 工作包全量门禁：Worker 71 项 Node 测试、独立 Agent 配置
 - [x] 独立 VPS 使用 `cfsm-agent v1.0.8` 连接，实时指标、D1 历史、三网延迟/丢包率均有真实数据。
 - [x] 真实浏览器完成访客前台、节点详情、管理后台登录与 1440px/390px 宽度验收。
 - [x] HTTP POST 和 Agent WSS 均已真实验证；验证后恢复默认 HTTP，避免测试环境长期占用 DO duration。
-- [ ] 在扩容节点前持续观察 Worker/D1/DO 实际用量，建立用量基线。
+- [x] 已建立首个 Worker/D1/DO 实际用量基线；2026-08-19 完整 UTC 日中 Worker 请求、D1 写入、D1 读取、DO 请求和 DO duration 分别占 Free 日额度约 2.933%、1.500%、0.294%、1.607% 和 0.041%，详见 [`usage-baseline-2026-08-20.md`](usage-baseline-2026-08-20.md)。
+
+第一阶段开发验收已全部完成。扩容节点或启用高频 PingTask 不属于当前开发完成条件；执行这类运维动作前，仍必须按基线文档连续观察至少 7 个完整 UTC 日，并确认单日峰值、异常状态和增长趋势满足门禁。
