@@ -1,6 +1,6 @@
 # 独立测试环境与运维记录
 
-> 最后验证：2026-08-19（Asia/Shanghai）。本文只记录公开资源标识和安全操作边界，不包含任何 Secret、JWT 或 Agent 配置内容。
+> 线上最后验证：2026-08-19（Asia/Shanghai）；Git 状态同步：2026-08-20。本文只记录公开资源标识和安全操作边界，不包含任何 Secret、JWT 或 Agent 配置内容。
 
 ## 当前基线
 
@@ -122,7 +122,7 @@ npx wrangler r2 bucket lifecycle add \
 
 ### 通知 Queue（可选，当前未创建）
 
-通知 Queue 与周期流量快照代码已在本地完成，但当前 Cloudflare 测试环境没有创建 Queue，也没有 `NOTIFICATION_QUEUE` binding，因此线上离线、恢复、资源和到期告警仍按原同步路径运行；流量快照的新设置默认为关闭。管理员“测试通知”无论是否启用 Queue 都保持同步。
+通知 Queue 与周期流量快照代码已完成，并随提交 `58aa764` 推送到 `origin/codex/reboot-foundation`，但尚未部署。当前 Cloudflare 测试环境没有创建 Queue，也没有 `NOTIFICATION_QUEUE` binding，因此线上离线、恢复、资源和到期告警仍按原同步路径运行；流量快照的新设置默认为关闭。管理员“测试通知”无论是否启用 Queue 都保持同步。
 
 启用前先在目标账户创建专用 Queue；Queue 名不是 Secret：
 
@@ -179,7 +179,7 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 已验证链路
 
-- Git 提交 `1aebd4d374463ddd4b8386788cb6e85e536d9571` 已推送到 `origin/codex/reboot-foundation`；Worker Version `6225658f-c926-47e0-abc0-7e06219e63e5` 于 2026-08-19 接管 100% 流量。通知 Queue 与周期流量快照工作包尚未提交或部署，不改变该线上版本。
+- Git 提交 `1aebd4d374463ddd4b8386788cb6e85e536d9571` 对应的 Worker Version `6225658f-c926-47e0-abc0-7e06219e63e5` 于 2026-08-19 接管 100% 流量。后续提交 `58aa764a6ed3a8037e8afee6f7794cbabd171920` 已推送到 `origin/codex/reboot-foundation`，包含通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow，但尚未部署，因此不改变该线上 Worker Version。
 - `/` 与 `/admin` 均返回 `200 text/html`；线上版本保留 `API_SECRET` Secret、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET`。
 - 配置逻辑备份状态接口未认证时返回 401；密码登录后返回 `scope=configuration-only`、`restore_supported=false`、`r2_available=false`。
 - 线上实际导出 `cfsm-logical-backup` v1 成功，产物 3150 字节，包含 1 台服务器、0 个 PingTask；重新计算 `JSON.stringify(backup.data)` 的 SHA-256 与 manifest 完全一致。

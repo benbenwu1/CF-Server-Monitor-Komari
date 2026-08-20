@@ -2,7 +2,7 @@
 
 该子项目把 CF-Server-Monitor 的完整 D1 SQL 导出到专用私有 R2。它是独立 Worker/Workflow，不属于面板 Worker，不读取面板的 `API_SECRET`，也不会把高权限 D1 REST Token 注入公开面板。
 
-当前状态：代码、测试和配置模板已在本地完成；尚未创建 R2、API Token 或 Workflow，尚未写入 Secret，也尚未部署。
+当前状态：代码、测试和配置模板已完成，并随提交 `58aa764` 推送到 `origin/codex/reboot-foundation`；尚未创建 R2、API Token 或 Workflow，尚未写入 Secret，也尚未部署。
 
 ## 安全边界
 

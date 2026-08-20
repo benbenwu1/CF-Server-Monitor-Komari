@@ -1,6 +1,6 @@
 # 配置逻辑备份与可选 R2 设计
 
-> 最后核验：2026-08-19（Asia/Shanghai）。面板工作包只实现管理员手动、脱敏的配置导出；完整 D1 定时归档已作为独立子项目在本地完成，仍不提供任意 SQL 或自动恢复。
+> 最后核验：2026-08-20（Asia/Shanghai）。面板工作包只实现管理员手动、脱敏的配置导出；完整 D1 定时归档已作为独立子项目完成并随提交 `58aa764` 推送，但尚未部署，仍不提供任意 SQL 或自动恢复。
 
 ## 结论
 
@@ -24,7 +24,7 @@ D1 Worker API 的 `dump()` 不能作为通用实现。Cloudflare 官方文档明
 - [Workers Limits](https://developers.cloudflare.com/workers/platform/limits/)：Free 每次动态请求为 10 ms CPU、128 MB 内存；因此产品内导出必须保持低频和有界。
 - [R2 Object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)：可按对象前缀配置过期规则，适合控制长期备份数量。
 
-官方 Workflows 完整导出路径很有价值，但它导出整个 D1，会包含密码哈希、通知凭据、TOTP 密文、Session 和审计等数据，还需要一个能调用 D1 export REST API 的独立 Secret。该路径已在 [`../ops/d1-backup-workflow`](../ops/d1-backup-workflow/README.md) 实现为隔离 Worker/Workflow：Token 不加入公开面板 Worker，SQL 与本工作包的脱敏 JSON 不混用。当前仅本地完成，尚未创建资源、写 Secret 或部署。
+官方 Workflows 完整导出路径很有价值，但它导出整个 D1，会包含密码哈希、通知凭据、TOTP 密文、Session 和审计等数据，还需要一个能调用 D1 export REST API 的独立 Secret。该路径已在 [`../ops/d1-backup-workflow`](../ops/d1-backup-workflow/README.md) 实现为隔离 Worker/Workflow，并随提交 `58aa764` 推送：Token 不加入公开面板 Worker，SQL 与本工作包的脱敏 JSON 不混用。当前尚未创建资源、写 Secret 或部署。
 
 ## 产物契约
 

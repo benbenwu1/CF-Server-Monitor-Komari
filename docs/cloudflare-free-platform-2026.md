@@ -97,7 +97,7 @@
 
 它适合编排“导出 D1 → 校验 → 写 R2 → 通知”或“发起诊断 → 等 Agent → 聚合结果 → 通知”这类低频流程。每分钟执行的正常告警轮询和 D1 历史写入继续使用现有 Worker/Cron 更简单、更节省 steps。
 
-Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers.cloudflare.com/workflows/examples/backup-d1/) 官方示例：Workflow 调用 D1 REST export、轮询 signed URL，再把 SQL dump 流式写入 R2。它证明完整归档在 Free 可实现，但不改变权限边界：示例需要具有目标 D1 export 权限的 API Token，完整 SQL 也会包含当前 D1 中的凭据与运行数据。本项目已把它实现为 `ops/d1-backup-workflow` 隔离组件：Token 不进入面板 Worker，SQL 直传专用私有 R2，manifest 不含 Token/database ID/signed URL，也不自动恢复。当前仅本地完成，尚未创建资源、写 Secret 或部署。
+Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers.cloudflare.com/workflows/examples/backup-d1/) 官方示例：Workflow 调用 D1 REST export、轮询 signed URL，再把 SQL dump 流式写入 R2。它证明完整归档在 Free 可实现，但不改变权限边界：示例需要具有目标 D1 export 权限的 API Token，完整 SQL 也会包含当前 D1 中的凭据与运行数据。本项目已把它实现为 `ops/d1-backup-workflow` 隔离组件，并随提交 `58aa764` 推送：Token 不进入面板 Worker，SQL 直传专用私有 R2，manifest 不含 Token/database ID/signed URL，也不自动恢复。当前尚未创建资源、写 Secret 或部署。
 
 ### R2、Analytics Engine 与 Browser Run
 
@@ -140,7 +140,7 @@ Cloudflare 2026-06-02 已发布 [Export and save D1 database](https://developers
 
 - Queues：通知投递记录、失败重试、Webhook 去耦。
 - R2：版本化 JSON/SQL 导出、备份清单和恢复校验。
-- 可选 Workflows：隔离的低频完整 D1 REST export 已本地完成；周期报告继续使用现有 Cron + 可选 Queue，不把 D1 REST Token 注入面板 Worker。
+- 可选 Workflows：隔离的低频完整 D1 REST export 已完成并随 `58aa764` 推送，但尚未部署；周期报告继续使用现有 Cron + 可选 Queue，不把 D1 REST Token 注入面板 Worker。
 
 ### P2：额度敏感或实验性质
 

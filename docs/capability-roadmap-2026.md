@@ -166,7 +166,7 @@
 | 通知可靠性 | 已完成显式 Provider、九类旧格式兼容、最多三次同步重试、结构化结果、30 天投递记录和凭据不回显；Provider 切换需新凭据 | P1 Queue 已在后续工作包实现；本表保留 P0 检查点语义 |
 | 免费额度与运维 | 已统一面板常量并按官方页面复核；已增加 Time Travel、Logs、Traces 和脱敏手册 | R2 归档和 Workflows 不进入 P0 |
 
-本地验收为 42 项测试、生产构建和 Wrangler dry-run 全部通过；已形成两个本地提交，未部署、未推送，也未改变 `2024-12-01` compatibility date。下方能力矩阵仍保留为固定提交 `1662281` 与当时线上快照的研究基线，不应用本节结果反向改写历史证据。
+本地验收为 42 项测试、生产构建和 Wrangler dry-run 全部通过；该阶段当时形成两个本地提交，后续已随 `codex/reboot-foundation` 推送并部署，也未改变 `2024-12-01` compatibility date。下方能力矩阵仍保留为固定提交 `1662281` 与当时线上快照的研究基线，不应用本节结果反向改写历史证据。
 
 ### P1：新增数据表、权限或异步绑定
 
@@ -180,7 +180,7 @@
 | D1 → R2 备份 | R2 binding、manifest、恢复校验 | Time Travel 负责短期回滚，R2 负责可下载/跨环境导出 |
 | 周期流量报告 | 查询口径、幂等键、通知 Queue | 独立实现，不复制 Komari 即将废弃的内建模块 |
 
-#### P1 实施状态（2026-08-19）
+#### P1 实施状态（2026-08-20）
 
 | 工作包 | 当前结果 | 下一切片 |
 | --- | --- | --- |
@@ -188,11 +188,11 @@
 | TOTP 2FA | 已完成 AES-GCM 加密 secret、RFC 6238 验证、setup/confirm/disable、10 个一次性恢复码、登录/setup 确认/站点公开性等关键设置/停用保护、D1 原子五分钟失败预算、并发 setup 确认 CAS、管理界面和安全审计；初始材料只显示一次 | 工作包完成；启用前必须单独配置并妥善备份 Cloudflare Secret `TOTP_ENCRYPTION_KEY` |
 | GitHub OAuth | 已完成 GitHub 单 Provider：固定 exact callback、state 哈希与原子单次消费、S256 PKCE、numeric ID 绑定、60 秒交换码、TOTP/恢复码登录、绑定/解绑、OAuth Session 撤销、管理界面和多 API base Token 隔离；GitHub token 不落库 | 工作包代码已部署；启用前创建专用 OAuth App、关闭 wildcard，并分别配置公开 Client ID、固定 callback URL 与 Worker Secret；密码登录永久保留 |
 | 任意 PingTask | 已完成 ICMP/TCP/HTTP CRUD、排序、节点分配、新节点默认应用、schema 6 配置、Agent 本地有界调度、带批次 ACK 的 HTTP/WSS 结果回传、7 天 D1 历史、每任务最新 2048 点读取上限、管理摘要和节点详情聚合图表；不保存正文/Header/原始错误 | 工作包已部署；71 项 Worker Node 测试与 119 项 Agent Go 测试、race、vet、生产构建、依赖审计和 Wrangler dry-run 均通过。当前未创建任务；默认 300 秒，60 秒在 10 任务时每节点约产生 14,400 条结果写/日，必须结合 D1 Free 10 万行写/日与原指标写入评估 |
-| D1 → R2 备份 | 面板侧配置逻辑导出已部署：显式白名单、版本/记录数/SHA-256、可选私有 R2、未绑定安全降级。另已在 `ops/d1-backup-workflow` 本地完成隔离的 D1 REST export + Workflow + 私有 R2 全量 SQL 归档，固定 UTC/instance key、轮询、流式写入和无 Secret manifest | 隔离组件 13 项测试和 Wrangler dry-run 通过，但尚未创建 R2、API Token、Secret 或 Workflow，也未部署。Token 不进入面板 Worker；默认无公网入口；完整 SQL 含敏感数据且不自动恢复 |
-| 通知 Queue | 已完成可选 `NOTIFICATION_QUEUE` producer/consumer、D1 outbox、opaque job 消息、逐消息 claim/ack/retry、同一 job 四次持久化总预算、60–240 秒指数退避、永久错误终止、staged 恢复与 30 天清理；测试通知保持同步 | 本地代码完成，尚未创建 Queue 或部署。未绑定时完全兼容原同步路径；重复物理消息不会重置预算；Free 每日 10,000 operations 只用于四类低频自动告警和可选周期流量快照。外部 Provider 不支持事务，因此仍是 at-least-once，极端崩溃窗口可能重复通知 |
-| 周期流量快照 | 已完成关闭/每日/每周/每月设置、UTC 周期幂等、当前账期上下行计算、配额百分比、50 台展开上限、总量汇总、Queue 状态联动和 400 天运行记录清理 | 默认关闭，本地代码完成且尚未部署。明确是各服务器当前账期累计快照，不宣称自然日/周/月增量；不同服务器重置日可以不同。独立设计，不复制 Komari 将移至插件的旧模块 |
+| D1 → R2 备份 | 面板侧配置逻辑导出已部署：显式白名单、版本/记录数/SHA-256、可选私有 R2、未绑定安全降级。另已在 `ops/d1-backup-workflow` 完成隔离的 D1 REST export + Workflow + 私有 R2 全量 SQL 归档，固定 UTC/instance key、轮询、流式写入和无 Secret manifest；代码已随 `58aa764` 推送 | 隔离组件 13 项测试和 Wrangler dry-run 通过，但尚未创建 R2、API Token、Secret 或 Workflow，也未部署。Token 不进入面板 Worker；默认无公网入口；完整 SQL 含敏感数据且不自动恢复 |
+| 通知 Queue | 已完成可选 `NOTIFICATION_QUEUE` producer/consumer、D1 outbox、opaque job 消息、逐消息 claim/ack/retry、同一 job 四次持久化总预算、60–240 秒指数退避、永久错误终止、staged 恢复与 30 天清理；测试通知保持同步；代码已随 `58aa764` 推送 | 尚未创建 Queue 或部署。未绑定时完全兼容原同步路径；重复物理消息不会重置预算；Free 每日 10,000 operations 只用于四类低频自动告警和可选周期流量快照。外部 Provider 不支持事务，因此仍是 at-least-once，极端崩溃窗口可能重复通知 |
+| 周期流量快照 | 已完成关闭/每日/每周/每月设置、UTC 周期幂等、当前账期上下行计算、配额百分比、50 台展开上限、总量汇总、Queue 状态联动和 400 天运行记录清理；代码已随 `58aa764` 推送 | 默认关闭且尚未部署。明确是各服务器当前账期累计快照，不宣称自然日/周/月增量；不同服务器重置日可以不同。独立设计，不复制 Komari 将移至插件的旧模块 |
 
-Session、TOTP、GitHub OAuth、PingTask 与配置逻辑备份已形成独立 P1 检查点并部署到独立测试 Worker；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 是后续本地检查点，尚未提交，也未创建远端 Queue/R2/API Token/Secret/Workflow 或部署。未配置的 TOTP、GitHub OAuth、R2 和 Queue 保持关闭，流量快照默认关闭。generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
+Session、TOTP、GitHub OAuth、PingTask 与配置逻辑备份已形成独立 P1 检查点并部署到独立测试 Worker；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 已在提交 `58aa764` 中推送，但尚未创建远端 Queue/R2/API Token/Secret/Workflow，也尚未部署。未配置的 TOTP、GitHub OAuth、R2 和 Queue 保持关闭，流量快照默认关闭。generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
 
 ### P2：实验或额度敏感
 
