@@ -37,6 +37,7 @@ import {
   toBroadcastSamples
 } from '../handlers/update.js';
 import { listAgentPingTasks, PingTaskError, savePingTaskResults } from '../services/pingTasks.js';
+import { persistServerStaticInfo } from '../services/serverStaticInfo.js';
 
 const MAX_SUBSCRIBE_IDS = 500;
 const MAX_SERVER_ID_LENGTH = 64;
@@ -842,7 +843,8 @@ export class MetricsBroadcaster {
       regionCode: attachment.region || '',
       agentVersion,
       reportIntervalMs,
-      agentConfig
+      agentConfig,
+      serverDetail
     };
   }
 
@@ -1309,6 +1311,22 @@ export class MetricsBroadcaster {
 
     const latestSample = samples[samples.length - 1];
     const latestMetrics = getReportMetrics(data, latestSample);
+    let currentStaticInfo = context.serverDetail;
+    if (
+      Object.prototype.hasOwnProperty.call(latestMetrics, 'cpu_physical_cores') ||
+      Object.prototype.hasOwnProperty.call(latestMetrics, 'virtualization')
+    ) {
+      currentStaticInfo = await this._getAgentServerDetail(context.serverId) || currentStaticInfo;
+    }
+    const staticInfoChanged = await persistServerStaticInfo(
+      this.env.DB,
+      context.serverId,
+      currentStaticInfo,
+      latestMetrics
+    );
+    if (staticInfoChanged) {
+      this.agentServerDetails.delete(context.serverId);
+    }
     const historyAggregate = collectHistoryMetricAggregates(samples);
     const broadcastSamples = toBroadcastSamples(
       context.serverId,

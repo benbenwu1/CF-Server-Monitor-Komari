@@ -284,6 +284,8 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
       "kernel_version": "6.8.0-36-generic",
       "cpu_info": "Intel(R) Xeon(R) CPU",
       "cpu_cores": "4",
+      "cpu_physical_cores": "2",
+      "virtualization": "kvm/guest",
       "gpu_info": [
         { "id": "0", "name": "NVIDIA GeForce RTX 3060", "info": 12.5 }
       ],
@@ -358,6 +360,8 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 | `kernel_version` | string       | -   | 是  | 内核版本                                      |
 | `cpu_info`       | string       | -   | 是  | CPU 型号                                      |
 | `cpu_cores`      | string\|number | -   | 是  | 逻辑核心数                                       |
+| `cpu_physical_cores` | string\|number | - | 否 | 物理核心数；无法可靠检测时为 `0`。仅在变化时更新服务器当前状态，不写入每条历史记录 |
+| `virtualization` | string | - | 否 | 低基数虚拟化类型与角色，例如 `kvm/guest`、`docker/guest`；未知或物理宿主可为空 |
 | ~~`gpu`~~        | number\|null | %   | 否  | ~~独立 GPU 占用字段。~~ **2026-07-26 修订**：旧版探针仍可能发送，但后端没有独立 `gpu` 列，不会持久化，也不会在 API 中返回 |
 | `gpu_info`       | array\|null | - | 否 | 新版格式为 `[{id,name,info}]`；`info` 是占用率。无 GPU 时可为 `null`，入库后会序列化为 JSON 字符串 |
 | `processes`      | string\|number | -   | 是  | 进程数                                         |
@@ -668,6 +672,8 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
     "util": 3.2
   },
   "cpu_cores": 4,
+  "cpu_physical_cores": 2,
+  "virtualization": "kvm/guest",
   "cpu_info": "Intel(R) Xeon(R) CPU",
   "gpu_info": "[{\"id\":\"0\",\"name\":\"NVIDIA GeForce RTX 3060\",\"info\":12.5}]",
   "arch": "x86_64",
@@ -1798,6 +1804,8 @@ UUID 缺失或格式非法时返回 `400 { "error": "invalidServerId", "code": 4
 | `disk_total` / `disk_used`                    | number             | MB                        |
 | `disk`                                        | object             | 磁盘 IO 当前值：`read_bps` / `write_bps` 为 B/s，`read_iops` / `write_iops` 为 ops/s，`await_ms` 为 ms，`util` 为 %；旧探针、旧历史缺失，或 6 个子字段全为 0 时不返回该对象 |
 | `cpu_cores`                                   | number             | 逻辑核心数                     |
+| `cpu_physical_cores`                          | number             | 物理核心数；无法检测时为 0           |
+| `virtualization`                              | string             | 虚拟化类型/角色，例如 `kvm/guest`；未知时为空 |
 | `cpu_info`                                    | string             | CPU 型号                    |
 | `gpu_info`                                    | array\|string\|null | GPU 列表。实时上报 / WebSocket 可能是 `[{id,name,info}]` 数组；REST 详情和历史接口通常是同结构的 JSON 字符串，其中 `info` 为占用率 |
 | `arch`                                        | string             | 架构                        |
@@ -1942,7 +1950,7 @@ curl -X POST https://status.example.com/update \
       "net_rx":"12345678","net_tx":"87654321",
       "net_rx_monthly":"1073741824","net_tx_monthly":"536870912",
       "net_in_speed":"1024","net_out_speed":"512",
-      "os":"Ubuntu 22.04","arch":"x86_64","kernel_version":"6.8.0-36-generic","cpu_info":"Intel Xeon","cpu_cores":"4",
+      "os":"Ubuntu 22.04","arch":"x86_64","kernel_version":"6.8.0-36-generic","cpu_info":"Intel Xeon","cpu_cores":"4","cpu_physical_cores":"2","virtualization":"kvm/guest",
       "gpu_info":[{"id":"0","name":"NVIDIA GPU","info":12.5}],
       "processes":"256","tcp_conn":"32","udp_conn":"4",
       "ip_v4":"203.0.113.10","ip_v6":"2001:db8::10",
@@ -2119,4 +2127,4 @@ curl -X POST https://status.example.com/admin/api \
 
 ***
 
-> 文档同步：与源码 `src/index.js`、`src/middleware/auth.js`、`src/handlers/{admin,dashboard,frontend,theme,update}.js`、`src/durable/MetricsBroadcaster.js`、`src/utils/{settings,errors,cors,csp,cache,metrics,common,serverBilling,version,latestReportCache,agentConfig}.js`、`src/database/{schema,updateDatabase}.js` 一一对应；后续修改任一文件时，请同步更新本文件。
+> 文档同步：与源码 `src/index.js`、`src/middleware/auth.js`、`src/handlers/{admin,dashboard,frontend,theme,update}.js`、`src/durable/MetricsBroadcaster.js`、`src/services/{analytics,serverStaticInfo}.js`、`src/utils/{settings,errors,cors,csp,cache,metrics,common,serverBilling,version,latestReportCache,agentConfig}.js`、`src/database/{schema,updateDatabase}.js` 一一对应；后续修改任一文件时，请同步更新本文件。

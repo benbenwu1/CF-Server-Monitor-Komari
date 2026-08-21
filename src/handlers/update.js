@@ -25,6 +25,7 @@ import {
 } from '../utils/agentConfig.js';
 import { scheduleAgentConfigChanged } from '../utils/agentConfigNotify.js';
 import { listAgentPingTasks, PingTaskError, savePingTaskResults } from '../services/pingTasks.js';
+import { persistServerStaticInfo } from '../services/serverStaticInfo.js';
 
 // 将最新一次上报打包成前端可直接消费的 "当前状态" 对象
 // 与 /api/server 和 /api/servers 返回的字段保持一致，便于页面直接合并
@@ -70,7 +71,7 @@ let resolveFlushingPromise = null;
 let frontendSubscriberSnapshot = { checkedAt: 0, count: 0 };
 
 // 用于过滤不需要实时更新的字段
-const BROADCAST_DELETE_FIELDS = ['id', 'name', 'region', 'arch', 'os', 'kernel_version', 'cpu_info', 'cpu_cores', 'expire_date', 'server_group', 'traffic_limit', 'net_rx_monthly', 'net_tx_monthly', 'boot_time', 'timestamp', 'ip_v4', 'ip_v6'];
+const BROADCAST_DELETE_FIELDS = ['id', 'name', 'region', 'arch', 'os', 'kernel_version', 'cpu_info', 'cpu_cores', 'cpu_physical_cores', 'virtualization', 'expire_date', 'server_group', 'traffic_limit', 'net_rx_monthly', 'net_tx_monthly', 'boot_time', 'timestamp', 'ip_v4', 'ip_v6'];
 
 function normalizeTimestamp(value, fallback = Date.now()) {
   const ts = Number(value);
@@ -550,6 +551,7 @@ export async function handleUpdate(request, env, ctx) {
     const latestSample = samples[samples.length - 1];
     const latestMetrics = getReportMetrics(data, latestSample);
     const historyMetrics = getHistoryMetrics(data, samples, latestSample);
+    await persistServerStaticInfo(env.DB, id, serverDetail, latestMetrics);
     await saveMetricsHistory(
       env.DB,
       id,

@@ -7,7 +7,7 @@ const NUMERIC_METRIC_FIELDS = [
   'cpu', 'net_in_speed', 'net_out_speed', 'net_rx', 'net_tx',
   'net_rx_monthly', 'net_tx_monthly', 'processes', 'tcp_conn', 'udp_conn',
   'ram_total', 'ram_used', 'swap_total', 'swap_used',
-  'disk_total', 'disk_used', 'cpu_cores',
+  'disk_total', 'disk_used', 'cpu_cores', 'cpu_physical_cores',
   'disk_read_bps', 'disk_write_bps', 'disk_read_iops',
   'disk_write_iops', 'disk_await_ms', 'disk_util'
 ];
@@ -207,11 +207,17 @@ export function mergeMetricsIntoServer(server, metrics) {
     delete server.disk;
   }
   server.cpu_cores = metrics.cpu_cores || 0;
+  if (Object.prototype.hasOwnProperty.call(metrics, 'cpu_physical_cores')) {
+    server.cpu_physical_cores = metrics.cpu_physical_cores || 0;
+  }
   server.cpu_info = metrics.cpu_info || '';
   server.gpu_info = metrics.gpu_info || '';
   server.arch = metrics.arch || '';
   server.os = metrics.os || '';
   server.kernel_version = metrics.kernel_version || '';
+  if (Object.prototype.hasOwnProperty.call(metrics, 'virtualization')) {
+    server.virtualization = metrics.virtualization || '';
+  }
   server.agent_version = metrics.agent_version || '';
   server.region = server.region || metrics.region || '';
   server.ip_v4 = metrics.ip_v4 || '0';

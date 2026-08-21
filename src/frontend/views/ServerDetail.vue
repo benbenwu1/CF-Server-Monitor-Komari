@@ -69,7 +69,15 @@
         </div>
         <div class="sysinfo-item">
           <span class="sysinfo-label">🔧 {{ trans.cpuInfo }}</span>
-          <span class="sysinfo-value sysinfo-small">{{ server.cpu_info || 'N/A' }} x {{ server.cpu_cores || 'N/A' }}</span>
+          <span class="sysinfo-value sysinfo-small">
+            {{ server.cpu_info || 'N/A' }} ·
+            {{ trans.logicalCores }} {{ server.cpu_cores || 'N/A' }}
+            <template v-if="server.cpu_physical_cores"> / {{ trans.physicalCores }} {{ server.cpu_physical_cores }}</template>
+          </span>
+        </div>
+        <div class="sysinfo-item" v-if="server.virtualization">
+          <span class="sysinfo-label">🧱 {{ trans.virtualization }}</span>
+          <span class="sysinfo-value sysinfo-small">{{ server.virtualization }}</span>
         </div>
         <div class="sysinfo-item" v-if="hasGpuData">
           <span class="sysinfo-label">🎮 {{ trans.gpuInfo || 'GPU Info' }}</span>
