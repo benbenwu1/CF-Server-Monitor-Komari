@@ -6,7 +6,7 @@
 
 Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运行在被监控的 VPS/主机上，通过 HTTPS/WSS 单向上报到 Cloudflare。
 
-当前状态（2026-08-20）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已部署到独立测试 Worker 并完成线上验证。通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 已完成本地实现与最终门禁，并随提交 `58aa764` 推送到 `origin/codex/reboot-foundation`；当前尚未创建 Queue、专用 R2、D1 REST API Token、Secret 或 Workflow，也尚未部署这三个工作包。P2.1 节点物理/逻辑核心与虚拟化信息、P2.2 可选 Analytics Engine 请求级影子遥测已在本地实现并通过门禁，但尚未提交、推送、创建 Dataset binding 或部署。没有可选 binding 时既有行为保持不变。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+当前状态（2026-08-21）：Phase 0、P0、P1 和第一阶段验收均已完成。提交 `6afe512` 已部署为 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3`；先验证旧 Agent `v1.0.8` 兼容，再把独立测试节点升级到 `v1.0.9-rc.2+fix.125474e0`。P2.1 已真实返回 1 个物理核心和 `kvm/guest`，HTTP 上报、D1、公开 API 与健康检查正常。通知 Queue 与周期流量快照代码已上线，但 Queue 未创建、binding 未声明，流量快照默认 `off`；隔离 D1 全量备份 Workflow 仍未部署。P2.2 Analytics Engine 代码已上线但 `CFSM_ANALYTICS` binding 未启用。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 Phase 0 之后的功能开发以以下研究与运维基线为准：
 
@@ -18,7 +18,7 @@ Phase 0 之后的功能开发以以下研究与运维基线为准：
 - [`usage-baseline-2026-08-20.md`](usage-baseline-2026-08-20.md)：当前 Worker/D1/DO 实际用量、容量判断和扩容前门禁。
 - [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)：P2 四档优先级、启动门槛和明确排除项。
 
-控制面 P0、独立管理审计界面和全部 P1 代码已推送到 `codex/reboot-foundation`。其中 Session、TOTP、GitHub OAuth、PingTask 和配置逻辑备份已部署到独立测试环境；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 尚未部署。P2.1 节点静态信息补齐和 P2.2 Analytics Engine 影子遥测已进入本地完成状态；GPU 温度与逐卡显存永久排除。后续仍逐个检查点推进，不自动部署。
+控制面 P0/P1、通知 Queue 兼容代码、周期流量快照默认关闭逻辑、P2.1 Worker/Agent 和 P2.2 未绑定代码均已部署到独立测试环境。下一步是决定是否把 RC2 发布为正式 Agent patch 版本；Analytics Engine 仍需单独授权启用。GPU 温度与逐卡显存永久排除。
 
 ## 上游关系
 
@@ -103,9 +103,9 @@ PingTask 工作包全量门禁：Worker 71 项 Node 测试、独立 Agent 配置
 
 配置逻辑备份工作包全量门禁：Worker 72 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）、Wrangler `deploy --dry-run`、GitHub Actions YAML/内嵌 shell 语法和 `git diff --check` 全部通过。工作包已部署；线上实际导出 3150 字节 JSON，SHA-256 复算一致，未认证 401 和 R2 未绑定 400 均符合契约。它不是完整 D1 快照：D1 Time Travel 继续负责短期原地回滚，`wrangler d1 export` 继续负责受控的完整 SQL 导出；Cloudflare 2026 官方 D1 REST export + Workflows 示例在该检查点后置为独立组件，现已按下文状态完成并随 `58aa764` 推送，但尚未部署，Token 仍不进入面板 Worker。
 
-通知 Queue 工作包已完成并随提交 `58aa764` 推送，尚未部署：Queue 消息不含 Provider Token、Chat ID 或通知正文；consumer 每条消息独立处理，同一 D1 job 共享四次持久化尝试总预算，重复物理消息不会重置计数。外部发送成功后的崩溃窗口仍遵循 Cloudflare Queues 的 at-least-once 语义，极端情况下可能重复通知。当前线上没有创建 Queue 或声明 binding，因此行为尚未改变。全量门禁为 84 项 Node 测试、独立 Agent 配置测试、前端生产构建、`npm audit --audit-level=high`（0 漏洞）、无 Queue 与启用 Queue 两套 Wrangler dry-run、GitHub Actions YAML/内嵌 shell 语法和 `git diff --check` 全部通过。
+通知 Queue 工作包代码已部署：Queue 消息不含 Provider Token、Chat ID 或通知正文；consumer 每条消息独立处理，同一 D1 job 共享四次持久化尝试总预算，重复物理消息不会重置计数。当前线上没有创建 Queue 或声明 binding，因此行为仍走同步路径；`notification_jobs` 为 0。外部 Provider 边界仍是 at-least-once。
 
-周期流量快照工作包同样已随提交 `58aa764` 推送，但尚未部署。升级后的设置默认 `off`，不会自动发通知；启用时需要现有通知凭据。`traffic_report_runs` 只保存周期键、状态、关联 job ID 和安全错误码，不保存凭据；配置逻辑备份包含频率设置，但排除运行记录。
+周期流量快照工作包代码已部署，线上设置为 `off`，不会自动发通知；`traffic_report_runs` 为 0。启用时仍需要现有通知凭据，并须单独核验通知与 Queue 配额。
 
 隔离 D1 全量备份 Workflow 工作包已完成并随提交 `58aa764` 推送：独立配置与 Secret、D1 REST polling、新旧完成响应兼容、401/403 永久失败、429/5xx/网络重试、稳定 UTC/instance R2 key、SQL 流式直传、R2 条件写、无 Token/database ID/signed URL manifest、私有 bucket/生命周期/状态/下载校验/新库恢复手册均已落地。子项目 13 项 Node 测试和 Wrangler 4.124.0 dry-run 通过；当前没有创建 R2、API Token、Secret 或 Workflow，也尚未部署。
 

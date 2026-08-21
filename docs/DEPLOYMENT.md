@@ -1,12 +1,12 @@
 # 独立测试环境与运维记录
 
-> 线上最后验证：2026-08-19（Asia/Shanghai）；Git 状态同步：2026-08-20。本文只记录公开资源标识和安全操作边界，不包含任何 Secret、JWT 或 Agent 配置内容。
+> 线上最后验证：2026-08-21（Asia/Shanghai）；Git 状态同步：2026-08-21。本文只记录公开资源标识和安全操作边界，不包含任何 Secret、JWT 或 Agent 配置内容。
 
 ## 当前基线
 
 - 开发分支：`codex/reboot-foundation`
 - CF-Server-Monitor 基线：`a4911ffa8664e047ea672d735a32d8ffde1c01da`
-- cfsm-agent：`v1.0.8` / `b435168ab8585aed10801d3e2918ba2fa09342b4`
+- cfsm-agent 测试节点：`v1.0.9-rc.2+fix.125474e0` / `49b8d05`；稳定回滚版本仍为 `v1.0.8`
 - Komari 功能参考：`da4d5187c1b10da3c5893595c5e2a9fd54d13792`
 
 ## Cloudflare 资源
@@ -19,7 +19,7 @@
 | D1 ID | `fc52eab7-4134-4a12-bb2f-8777df48f89a` |
 | Durable Object | `MetricsBroadcaster` |
 | Cron | `*/1 * * * *` 和 `0 * * * *` |
-| 已验证 Worker Version | `6225658f-c926-47e0-abc0-7e06219e63e5` |
+| 已验证 Worker Version | `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` |
 
 `API_SECRET` 已作为 Cloudflare Secret 设置，本机回滚副本保存在 macOS Keychain：
 
@@ -122,7 +122,7 @@ npx wrangler r2 bucket lifecycle add \
 
 ### 通知 Queue（可选，当前未创建）
 
-通知 Queue 与周期流量快照代码已完成，并随提交 `58aa764` 推送到 `origin/codex/reboot-foundation`，但尚未部署。当前 Cloudflare 测试环境没有创建 Queue，也没有 `NOTIFICATION_QUEUE` binding，因此线上离线、恢复、资源和到期告警仍按原同步路径运行；流量快照的新设置默认为关闭。管理员“测试通知”无论是否启用 Queue 都保持同步。
+通知 Queue 与周期流量快照代码已随 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` 部署，但当前 Cloudflare 测试环境没有创建 Queue，也没有 `NOTIFICATION_QUEUE` binding，因此线上离线、恢复、资源和到期告警仍按原同步路径运行；流量快照设置为 `off`，`notification_jobs` 和 `traffic_report_runs` 均为 0。管理员“测试通知”无论是否启用 Queue 都保持同步。
 
 启用前先在目标账户创建专用 Queue；Queue 名不是 Secret：
 
@@ -160,7 +160,7 @@ Workers Free 当前每天包含 10,000 Queue operations，一条小消息成功�
 
 ### Analytics Engine 影子遥测（可选，当前未启用）
 
-P2 影子遥测使用可选 `CFSM_ANALYTICS` binding。未声明 binding 时所有写入函数立即返回，Worker 行为和响应完全不变；Analytics Engine 的 `writeDataPoint()` 是同步非阻塞调用，不需要 `waitUntil()`。
+P2 影子遥测代码已随 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` 部署，但当前未声明 `CFSM_ANALYTICS` binding，因此所有写入函数立即返回，线上没有 Analytics Engine 数据写入。Analytics Engine 的 `writeDataPoint()` 是同步非阻塞调用，不需要 `waitUntil()`。
 
 本地或手工部署时，可在 `wrangler.toml` 增加：
 
@@ -199,7 +199,14 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 已验证链路
 
-- Git 提交 `1aebd4d374463ddd4b8386788cb6e85e536d9571` 对应的 Worker Version `6225658f-c926-47e0-abc0-7e06219e63e5` 于 2026-08-19 接管 100% 流量。后续提交 `58aa764a6ed3a8037e8afee6f7794cbabd171920` 已推送到 `origin/codex/reboot-foundation`，包含通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow，但尚未部署，因此不改变该线上 Worker Version。
+- Git 提交 `6afe512b2948c9188a82649d0f197ecfd5403562` 对应的 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` 于 2026-08-21 04:36 UTC 接管 100% 流量。部署前 D1 Time Travel bookmark 为 `0000000d-000000f2-000050ce-4836bd5575033ef6ad3bfe452f1a2ef7`。
+- 新版本只声明现有 `API_SECRET`、D1、Durable Object 和 Assets；未声明 `NOTIFICATION_QUEUE`、`BACKUP_BUCKET` 或 `CFSM_ANALYTICS`，也未创建项目专用 Queue、R2 或 Workflow。
+- `/`、`/api/config` 和 `/__do/health` 均返回 200；部署后 15 分钟 GraphQL 窗口内新版本 5 次 invocation 全部成功、errors=0。
+- `servers` 已自动增加 `cpu_physical_cores INTEGER DEFAULT 0` 和 `virtualization TEXT DEFAULT ''`；旧 Agent `v1.0.8` 继续兼容，因此当前值仍为 `0` / 空字符串。
+- D1 `metrics_history` 从部署前 4,336 行、最新 `2026-08-21T04:28:35.976Z` 增至 4,345 行、最新 `2026-08-21T04:37:39.027Z`，证明旧 Agent HTTP 上报在新版本接管后继续成功。
+- 测试节点随后升级到 Agent `v1.0.9-rc.2+fix.125474e0`。初版 RC1 在该 Debian/KVM 环境中遇到 gopsutil 返回 `system="" role="guest"`，导致虚拟化类型为空；提交 `49b8d05` 增加 `systemd-detect-virt` fallback，同一红灯命令由 `expected=kvm/guest actual=` 转为 `expected=kvm/guest actual=kvm/guest`。
+- RC2 上线后 D1 与公开 API 均返回 `cpu_physical_cores=1`、`virtualization=kvm/guest`、`agent_version=v1.0.9-rc.2+fix.125474e0`；`metrics_history` 最新记录为 `2026-08-21T08:46:00.009Z`。最近 20 分钟新 Worker 51 次、DO 26 次 invocation 全部 success、errors=0。
+- 测试节点保留两个可执行回滚副本：`/usr/local/bin/cf-probe.backup-20260821T080708Z`（v1.0.8）与 `/usr/local/bin/cf-probe.backup-20260821T084458Z-rc1`；上传到 `/tmp` 的诊断和 RC 文件已清理。
 - `/` 与 `/admin` 均返回 `200 text/html`；线上版本保留 `API_SECRET` Secret、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET`。
 - 配置逻辑备份状态接口未认证时返回 401；密码登录后返回 `scope=configuration-only`、`restore_supported=false`、`r2_available=false`。
 - 线上实际导出 `cfsm-logical-backup` v1 成功，产物 3150 字节，包含 1 台服务器、0 个 PingTask；重新计算 `JSON.stringify(backup.data)` 的 SHA-256 与 manifest 完全一致。
