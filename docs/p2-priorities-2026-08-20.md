@@ -23,7 +23,7 @@
 
 ### 1. 节点静态信息补齐
 
-**结论：推进，优先级最高。**
+**结论：已推进，本地实现完成，待提交、部署和真实 Agent 验收。**
 
 - 用户价值：补齐内核、虚拟化、物理/逻辑核心等字段，可直接改善节点识别、资产盘点和故障上下文；当前已有 `cpu_cores`、`cpu_info`、`arch`、`os`、`kernel_version`、`region`、IPv4/IPv6，属于协议小步扩展，不需要新 Cloudflare 产品。
 - Free 额度：静态字段应只在变化或低频心跳时更新；D1 按行读写计费，给现有行增加少量字段不会增加行数计费。[D1 官方价格](https://developers.cloudflare.com/d1/platform/pricing/)
@@ -33,7 +33,7 @@
 
 ### 2. Analytics Engine 影子遥测
 
-**结论：推进，但只做聚合遥测，不替代 D1。**
+**结论：已推进为可选影子遥测，本地实现完成；不替代 D1。**
 
 - 用户价值：适合记录 CFSM 自身请求、告警、通知投递、PingTask 成功率和耗时分布，为容量趋势和产品运维提供 3 个月聚合视图；可减少为了统计而扫描 D1 业务表。
 - Free 额度：Workers Free 每天包含 100,000 个写入点和 10,000 次 SQL 查询；每次 Worker invocation 最多写 250 点，数据保留 3 个月。[官方价格](https://developers.cloudflare.com/analytics/analytics-engine/pricing/) · [官方限制](https://developers.cloudflare.com/analytics/analytics-engine/limits/)
@@ -154,8 +154,8 @@
 ## 建议实施顺序
 
 1. 先部署并验收已经完成的 P1 Queue、周期流量快照和隔离备份 Workflow；这不是 P2 代码任务，但它们是观察新增用量和故障面的前提。
-2. P2.1：节点静态信息补齐，单独提交、迁移和 Agent 兼容验收。
-3. P2.2：Analytics Engine shadow telemetry，运行 14 天后决定是否建设后台图表。
+2. P2.1：节点静态信息补齐已完成本地实现与兼容门禁，待独立提交、部署和真实 Agent 验收。
+3. P2.2：Analytics Engine shadow telemetry 已完成可选 binding 与匿名请求遥测实现；待创建 Dataset 后运行 14 天，再决定是否建设后台图表。
 4. P2.3：仅在真实网页故障需求出现后，做 Browser Run 小规模试点。
 5. Secrets Store 只在组件和共享 Secret 达到门槛时迁移。
 6. 第三档项目在各自启动门槛满足前保持文档状态；第四档不得进入开发排期。

@@ -6,7 +6,7 @@
 
 Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运行在被监控的 VPS/主机上，通过 HTTPS/WSS 单向上报到 Cloudflare。
 
-当前状态（2026-08-20）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已部署到独立测试 Worker 并完成线上验证。通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 已完成本地实现与最终门禁，并随提交 `58aa764` 推送到 `origin/codex/reboot-foundation`；当前尚未创建 Queue、专用 R2、D1 REST API Token、Secret 或 Workflow，也尚未部署这三个工作包。没有 Queue binding 时通知仍走同步路径，流量快照默认关闭。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+当前状态（2026-08-20）：Phase 0 已完成，独立 Cloudflare 环境与真实 VPS Agent 已打通；P1 的 Session、TOTP、GitHub OAuth、通用 PingTask，以及配置逻辑导出与可选 R2 备份已部署到独立测试 Worker 并完成线上验证。通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 已完成本地实现与最终门禁，并随提交 `58aa764` 推送到 `origin/codex/reboot-foundation`；当前尚未创建 Queue、专用 R2、D1 REST API Token、Secret 或 Workflow，也尚未部署这三个工作包。P2.1 节点物理/逻辑核心与虚拟化信息、P2.2 可选 Analytics Engine 请求级影子遥测已在本地实现并通过门禁，但尚未提交、推送、创建 Dataset binding 或部署。没有可选 binding 时既有行为保持不变。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 Phase 0 之后的功能开发以以下研究与运维基线为准：
 
@@ -18,7 +18,7 @@ Phase 0 之后的功能开发以以下研究与运维基线为准：
 - [`usage-baseline-2026-08-20.md`](usage-baseline-2026-08-20.md)：当前 Worker/D1/DO 实际用量、容量判断和扩容前门禁。
 - [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)：P2 四档优先级、启动门槛和明确排除项。
 
-控制面 P0、独立管理审计界面和全部 P1 代码已推送到 `codex/reboot-foundation`。其中 Session、TOTP、GitHub OAuth、PingTask 和配置逻辑备份已部署到独立测试环境；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 尚未部署。P2 近期只推荐节点静态信息补齐和 Analytics Engine 影子遥测，仍需单独立项；GPU 温度与逐卡显存永久排除。后续按路线图逐个切片推进，不自动部署。
+控制面 P0、独立管理审计界面和全部 P1 代码已推送到 `codex/reboot-foundation`。其中 Session、TOTP、GitHub OAuth、PingTask 和配置逻辑备份已部署到独立测试环境；通知 Queue、周期流量快照和隔离 D1 全量备份 Workflow 尚未部署。P2.1 节点静态信息补齐和 P2.2 Analytics Engine 影子遥测已进入本地完成状态；GPU 温度与逐卡显存永久排除。后续仍逐个检查点推进，不自动部署。
 
 ## 上游关系
 

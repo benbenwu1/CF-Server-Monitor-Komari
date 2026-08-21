@@ -158,6 +158,26 @@ Workers Free 当前每天包含 10,000 Queue operations，一条小消息成功�
 
 流量快照可在管理页选择关闭、每日、每周或每月。周期按 UTC 计算，启用后会在当前周期首次小时 Cron 时发送；每个周期键只处理一次。内容是各服务器 Agent 上报的当前账期累计值，最多展开 50 台，并不是自然日/周/月增量；因为每台服务器可配置不同流量重置日，不能把该快照误读为统一结算周期。
 
+### Analytics Engine 影子遥测（可选，当前未启用）
+
+P2 影子遥测使用可选 `CFSM_ANALYTICS` binding。未声明 binding 时所有写入函数立即返回，Worker 行为和响应完全不变；Analytics Engine 的 `writeDataPoint()` 是同步非阻塞调用，不需要 `waitUntil()`。
+
+本地或手工部署时，可在 `wrangler.toml` 增加：
+
+```toml
+[[analytics_engine_datasets]]
+binding = "CFSM_ANALYTICS"
+dataset = "cfsm_shadow_telemetry"
+```
+
+GitHub Actions 部署时设置普通变量：
+
+```text
+ANALYTICS_ENGINE_DATASET=cfsm_shadow_telemetry
+```
+
+首期只写请求级匿名聚合：固定 index、低基数路由类别、HTTP 方法、结果类别、状态码、耗时和计数。禁止写入原始 path、查询串、IP、Server ID、JWT、Cookie、Agent Secret 或通知凭据。写入异常被安全隔离，不得改变请求结果。启用后先运行 14 天，与 D1/Cloudflare GraphQL 现有统计对比，再决定是否增加管理图表；它不替代 D1、审计表、通知 outbox 或精确账单。
+
 ## 真实测试节点
 
 | 项目 | 当前值 |

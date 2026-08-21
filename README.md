@@ -171,6 +171,8 @@ Go Agent 的完整更新记录见 [cfsm-agent releases](https://github.com/huila
 
 若要启用自动告警和周期流量快照的异步投递，先在同一 Cloudflare 账户创建 Queue，再增加普通 Actions Variable `NOTIFICATION_QUEUE_NAME`。变量为空时离线、恢复、资源、到期告警和已启用的流量快照继续同步发送；管理员测试通知始终同步。配置、免费额度和 at-least-once 边界见 [通知 Queue 部署说明](docs/DEPLOYMENT.md#通知-queue可选当前未创建)。
 
+若要启用 P2 Analytics Engine 影子遥测，增加普通 Actions Variable `ANALYTICS_ENGINE_DATASET=cfsm_shadow_telemetry`。变量为空时不声明 binding、不写入任何遥测；启用后只记录匿名路由类别、方法、状态、耗时和计数，不记录 URL 查询串、IP、Server ID、JWT 或凭据。完整边界见 [部署记录](docs/DEPLOYMENT.md#analytics-engine-影子遥测可选当前未启用)。
+
 完整 D1 SQL 归档是 [`ops/d1-backup-workflow`](ops/d1-backup-workflow/README.md) 下的独立组件，不随面板部署自动启用。代码与 dry-run 已完成并随提交 `58aa764` 推送，但尚未创建专用 R2、API Token、Secret 或 Workflow，也尚未部署。启用时必须单独部署，不能把 `D1_REST_API_TOKEN` 写入本面板 Worker。
 
 推送到 `main` 分支会自动部署，也可以在 Actions 页面手动运行 `Deploy to Cloudflare Workers` 工作流。

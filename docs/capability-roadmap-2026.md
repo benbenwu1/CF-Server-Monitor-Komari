@@ -59,7 +59,7 @@
 | 磁盘 IO、进程、TCP/UDP 连接 | 成熟 | 完整；磁盘 IO 依平台 | 已真实上报/展示 | 4 | 1 | 3 | 1 | 否 | 保留 | [K-Model] [C-Agent] [Live] |
 | 多 GPU 利用率历史 | 成熟 | 完整保存 `gpu_info` JSON，多卡曲线 | 测试节点无 GPU，未实机验 | 3 | 1 | 3 | 1 | 否 | 保留 | [K-GPU] [C-Schema] [C-Agent] |
 | GPU 温度、逐卡显存总量/占用 | 成熟 | 缺失；当前 Agent 只有 `name/info/id` | 不存在 | 3 | 3 | 3 | 1 | 是 | **排除**；用户于 2026-08-20 明确不进入路线图 | [K-GPU] [C-Agent] |
-| 节点静态信息：CPU、核心、虚拟化、OS、内核、架构、IP、地区 | 成熟 | 大部分有；物理核心/虚拟化语义较弱 | 已验证主要字段 | 4 | 2 | 1 | 2 | 可选 | **P2.1 近期推进** | [K-Model] [C-Agent] [Live] |
+| 节点静态信息：CPU、核心、虚拟化、OS、内核、架构、IP、地区 | 成熟 | 已补物理/逻辑核心和虚拟化类型；静态值只在变化时写 `servers`，不重复写历史 | 旧线上尚无新增字段 | 4 | 2 | 1 | 2 | 是 | **P2.1 本地完成，待提交/部署** | [K-Model] [C-Agent] [Live] |
 | 历史指标与查询 | 成熟，独立 metric store | 7 天 D1 历史、长时段抽样、播放 | 66 条，持续增长 | 5 | 2 | 5 | 1 | 否 | 保留 | [K-Rollup] [C-Schema] [Live] |
 | raw + 1m/5m/1h/day rollup、TDigest 百分位 | 成熟 | 无同等 rollup；按查询窗口稀疏采样 | 不存在 | 3 | 5 | 5 | 1 | 否 | 不照搬 | [K-Rollup] [C-Sampling] |
 | 单指标 retention 管理 | 成熟，可设为 0 清数据 | 站点统一 7 天，无单指标策略 | 不存在 | 3 | 4 | 4 | 2 | 否 | 后置；如重启改做指标组分层 | [K-Metric] [K-Rollup] [C-Schema] |
@@ -204,6 +204,12 @@ Session、TOTP、GitHub OAuth、PingTask 与配置逻辑备份已形成独立 P1
 - **排除**：GPU 温度与逐卡显存；当前 P2 的 traceroute/mesh；第三方 GeoIP Provider 矩阵；原始访客审计；主题包 raw HTML/redirect/任意注入能力。
 
 P2 不自动开工。先部署并验收已完成的 P1 Queue、周期流量快照和隔离备份 Workflow，再逐项满足启动门槛。
+
+#### P2 实施状态（2026-08-20）
+
+- **P2.1 节点静态信息**：Agent 使用跨平台 gopsutil 补充 `cpu_physical_cores` 和低基数 `virtualization`；原 `cpu_cores` 保持逻辑核心语义。Worker 只在字段变化时更新 `servers` 当前状态，不把静态值重复写入 `metrics_history`；HTTP/WSS、API、详情页和数据库升级已接通。
+- **P2.2 Analytics Engine 影子遥测**：可选 `CFSM_ANALYTICS` binding 只写固定 index、低基数路由类别、方法、结果、状态、耗时和计数；不写原始 path、查询串、IP、Server ID、JWT 或凭据。未绑定时零行为变化，写入异常不会改变响应。
+- 本地门禁为主 Worker 99 项 Node 测试、Agent 全仓测试/race/vet、四平台交叉编译、前端构建、依赖审计，以及无 Analytics/启用 Analytics 两套 Wrangler dry-run。当前没有创建 Analytics Engine Dataset、binding 或部署。
 
 ## 当前线上快照
 

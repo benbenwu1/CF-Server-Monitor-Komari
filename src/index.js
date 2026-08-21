@@ -27,6 +27,7 @@ import { getRemoteVersion } from './utils/version.js';
 import { cleanupGithubOAuthStartLimits, isGithubOAuthAvailable } from './services/githubOAuth.js';
 import { cleanupPingTaskResults } from './services/pingTasks.js';
 import { cleanupTrafficReportRuns, runScheduledTrafficReport } from './services/trafficReport.js';
+import { recordRequestTelemetry } from './services/analytics.js';
 // Durable Objects: 实时指标广播
 // 显式 import + extends，确保 wrangler 静态分析器能在入口文件直接识别此 DO 类
 import { MetricsBroadcaster as _MetricsBroadcaster }
@@ -178,16 +179,23 @@ export default {
     const url = new URL(request.url);
     const method = request.method;
     const path = url.pathname;
+    const telemetryStartedAt = Date.now();
+    const finishResponse = (response, outcome = '') => {
+      recordRequestTelemetry(env, request, response?.status || 0, Date.now() - telemetryStartedAt, outcome);
+      return response;
+    };
+
+    try {
 
     const corsAllowedOrigins = getCorsAllowedOrigins(env);
     
     if (!env.API_SECRET || env.API_SECRET.length === 0) {
       const response = createBadRequestResponse('API_SECRET is required');
-      return applyCors(response, request, corsAllowedOrigins);
+      return finishResponse(applyCors(response, request, corsAllowedOrigins));
     }
     
     if (method === 'OPTIONS') {
-      return createOptionsResponse(request, corsAllowedOrigins);
+      return finishResponse(createOptionsResponse(request, corsAllowedOrigins));
     }
 
     if (method === 'GET' && path === '/admin/') {
@@ -196,14 +204,14 @@ export default {
       target.pathname = '/admin';
       target.search = '';
       target.hash = `admin${search}`;
-      return Response.redirect(target.toString(), 302);
+      return finishResponse(Response.redirect(target.toString(), 302));
     }
 
     if (method === 'GET' && path.startsWith('/assets/')) {
       try {
         const themeAssetResponse = await serveFrontend(request, env, await loadSettings(env.DB));
         if (themeAssetResponse.headers.get('X-CFSM-Theme-Asset') === '1') {
-          return applyCors(cleanThemeAssetResponse(themeAssetResponse), request, corsAllowedOrigins);
+          return finishResponse(applyCors(cleanThemeAssetResponse(themeAssetResponse), request, corsAllowedOrigins));
         }
       } catch (e) {
       }
@@ -246,7 +254,7 @@ export default {
           
           if (!isVerified) {
             const response = createErrorResponse(new AppError('Turnstile verification failed', 403));
-            return applyCors(response, request, corsAllowedOrigins);
+            return finishResponse(applyCors(response, request, corsAllowedOrigins));
           }
           
           setTurnstileVerified = true;
@@ -400,7 +408,7 @@ export default {
 
         // WebSocket 升级响应直接原样返回，不能修改 response 对象
         if (response.status === 101) {
-          return response;
+          return finishResponse(response);
         }
 
         if (setTurnstileVerified) {
@@ -413,20 +421,24 @@ export default {
           finalHeaders.set('Access-Control-Allow-Credentials', 'true');
           finalHeaders.set('Vary', 'Origin');
 
-          return new Response(response.body, {
+          return finishResponse(new Response(response.body, {
             status: response.status,
             statusText: response.statusText,
             headers: finalHeaders
-          });
+          }));
         }
 
-        return applyCors(response, request, corsAllowedOrigins);
+        return finishResponse(applyCors(response, request, corsAllowedOrigins));
       }
     }
 
     const fullSettings = await loadSettings(env.DB);
     const frontendResponse = await serveFrontend(request, env, fullSettings);
-    return applyCors(frontendResponse, request, corsAllowedOrigins);
+    return finishResponse(applyCors(frontendResponse, request, corsAllowedOrigins));
+    } catch (error) {
+      recordRequestTelemetry(env, request, 500, Date.now() - telemetryStartedAt, 'exception');
+      throw error;
+    }
   },
 
   async scheduled(event, env, ctx) {

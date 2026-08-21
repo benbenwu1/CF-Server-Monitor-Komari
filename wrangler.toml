@@ -22,6 +22,11 @@ binding = "DB"
 database_name = "cf-server-monitor-komari-db"
 database_id = "fc52eab7-4134-4a12-bb2f-8777df48f89a"
 
+# 可选：P2 Analytics Engine 影子遥测。未配置时不写入任何遥测数据。
+# [[analytics_engine_datasets]]
+# binding = "CFSM_ANALYTICS"
+# dataset = "cfsm_shadow_telemetry"
+
 # 可选：管理员手动把脱敏后的配置逻辑备份写入私有 R2。
 # 未配置时下载备份仍可用，Worker 启动和其他功能不受影响。
 # [[r2_buckets]]

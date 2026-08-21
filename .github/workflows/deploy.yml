@@ -51,6 +51,7 @@ jobs:
         env:
           R2_BACKUP_BUCKET: ${{ vars.R2_BACKUP_BUCKET }}
           NOTIFICATION_QUEUE_NAME: ${{ vars.NOTIFICATION_QUEUE_NAME }}
+          ANALYTICS_ENGINE_DATASET: ${{ vars.ANALYTICS_ENGINE_DATASET }}
         run: |
           cat > wrangler.toml << 'WEOF'
           name = "server-monitor-pro"
@@ -121,6 +122,20 @@ jobs:
           max_retries = 3
           retry_delay = 60
           max_concurrency = 1
+          WEOF
+          fi
+
+          # 可选 Analytics Engine 影子遥测：变量为空时完全不声明 binding。
+          if [ -n "$ANALYTICS_ENGINE_DATASET" ]; then
+            if [[ ! "$ANALYTICS_ENGINE_DATASET" =~ ^[a-z][a-z0-9_]{0,63}$ ]]; then
+              echo "ANALYTICS_ENGINE_DATASET 必须以小写字母开头，仅包含小写字母、数字或下划线，最长 64 位" >&2
+              exit 1
+            fi
+            cat >> wrangler.toml << WEOF
+
+          [[analytics_engine_datasets]]
+          binding = "CFSM_ANALYTICS"
+          dataset = "$ANALYTICS_ENGINE_DATASET"
           WEOF
           fi
 
