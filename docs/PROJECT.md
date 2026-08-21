@@ -6,7 +6,7 @@
 
 Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运行在被监控的 VPS/主机上，通过 HTTPS/WSS 单向上报到 Cloudflare。
 
-当前状态（2026-08-21）：Phase 0、P0、P1 和第一阶段验收均已完成。提交 `6afe512` 已部署为 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3`；先验证旧 Agent `v1.0.8` 兼容，再把独立测试节点升级到 `v1.0.9-rc.2+fix.125474e0`。P2.1 已真实返回 1 个物理核心和 `kvm/guest`，HTTP 上报、D1、公开 API 与健康检查正常。通知 Queue 与周期流量快照代码已上线，但 Queue 未创建、binding 未声明，流量快照默认 `off`；隔离 D1 全量备份 Workflow 仍未部署。P2.2 Analytics Engine 代码已上线但 `CFSM_ANALYTICS` binding 未启用。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+当前状态（2026-08-21）：Phase 0、P0、P1 和第一阶段验收均已完成。提交 `6afe512` 已部署为 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3`；先验证旧 Agent `v1.0.8` 兼容，再发布正式 Agent `v1.0.10` 并升级独立测试节点。P2.1 已真实返回 1 个物理核心和 `kvm/guest`，HTTP 上报、D1、公开 API 与健康检查正常。通知 Queue 与周期流量快照代码已上线，但 Queue 未创建、binding 未声明，流量快照默认 `off`；隔离 D1 全量备份 Workflow 仍未部署。P2.2 Analytics Engine 代码已上线但 `CFSM_ANALYTICS` binding 未启用。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 Phase 0 之后的功能开发以以下研究与运维基线为准：
 
@@ -18,7 +18,7 @@ Phase 0 之后的功能开发以以下研究与运维基线为准：
 - [`usage-baseline-2026-08-20.md`](usage-baseline-2026-08-20.md)：当前 Worker/D1/DO 实际用量、容量判断和扩容前门禁。
 - [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)：P2 四档优先级、启动门槛和明确排除项。
 
-控制面 P0/P1、通知 Queue 兼容代码、周期流量快照默认关闭逻辑、P2.1 Worker/Agent 和 P2.2 未绑定代码均已部署到独立测试环境。下一步是决定是否把 RC2 发布为正式 Agent patch 版本；Analytics Engine 仍需单独授权启用。GPU 温度与逐卡显存永久排除。
+控制面 P0/P1、通知 Queue 兼容代码、周期流量快照默认关闭逻辑、P2.1 Worker/Agent 正式版和 P2.2 未绑定代码均已部署到独立测试环境。下一步可部署通知 Queue，或单独授权启用 Analytics Engine 进行 14 天 shadow；GPU 温度与逐卡显存永久排除。
 
 ## 上游关系
 

@@ -154,7 +154,7 @@
 ## 建议实施顺序
 
 1. 先部署并验收已经完成的 P1 Queue、周期流量快照和隔离备份 Workflow；这不是 P2 代码任务，但它们是观察新增用量和故障面的前提。
-2. P2.1：Worker 端和 Agent RC2 已部署到单一测试节点，物理核心与 `kvm/guest` 实机验证通过；待决定是否发布正式 Agent patch 版本。
+2. P2.1：Worker 端和正式 Agent `v1.0.10` 已部署到单一测试节点，物理核心与 `kvm/guest` 实机验证通过。
 3. P2.2：Analytics Engine shadow telemetry 代码已部署但 binding 关闭；待单独授权启用后运行 14 天，再决定是否建设后台图表。
 4. P2.3：仅在真实网页故障需求出现后，做 Browser Run 小规模试点。
 5. Secrets Store 只在组件和共享 Secret 达到门槛时迁移。

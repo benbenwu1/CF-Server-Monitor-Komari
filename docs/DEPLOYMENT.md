@@ -6,7 +6,7 @@
 
 - 开发分支：`codex/reboot-foundation`
 - CF-Server-Monitor 基线：`a4911ffa8664e047ea672d735a32d8ffde1c01da`
-- cfsm-agent 测试节点：`v1.0.9-rc.2+fix.125474e0` / `49b8d05`；稳定回滚版本仍为 `v1.0.8`
+- cfsm-agent 测试节点：正式版 `v1.0.10` / `49b8d05`；稳定回滚版本仍为 `v1.0.8`
 - Komari 功能参考：`da4d5187c1b10da3c5893595c5e2a9fd54d13792`
 
 ## Cloudflare 资源
@@ -204,9 +204,10 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 - `/`、`/api/config` 和 `/__do/health` 均返回 200；部署后 15 分钟 GraphQL 窗口内新版本 5 次 invocation 全部成功、errors=0。
 - `servers` 已自动增加 `cpu_physical_cores INTEGER DEFAULT 0` 和 `virtualization TEXT DEFAULT ''`；旧 Agent `v1.0.8` 继续兼容，因此当前值仍为 `0` / 空字符串。
 - D1 `metrics_history` 从部署前 4,336 行、最新 `2026-08-21T04:28:35.976Z` 增至 4,345 行、最新 `2026-08-21T04:37:39.027Z`，证明旧 Agent HTTP 上报在新版本接管后继续成功。
-- 测试节点随后升级到 Agent `v1.0.9-rc.2+fix.125474e0`。初版 RC1 在该 Debian/KVM 环境中遇到 gopsutil 返回 `system="" role="guest"`，导致虚拟化类型为空；提交 `49b8d05` 增加 `systemd-detect-virt` fallback，同一红灯命令由 `expected=kvm/guest actual=` 转为 `expected=kvm/guest actual=kvm/guest`。
-- RC2 上线后 D1 与公开 API 均返回 `cpu_physical_cores=1`、`virtualization=kvm/guest`、`agent_version=v1.0.9-rc.2+fix.125474e0`；`metrics_history` 最新记录为 `2026-08-21T08:46:00.009Z`。最近 20 分钟新 Worker 51 次、DO 26 次 invocation 全部 success、errors=0。
-- 测试节点保留两个可执行回滚副本：`/usr/local/bin/cf-probe.backup-20260821T080708Z`（v1.0.8）与 `/usr/local/bin/cf-probe.backup-20260821T084458Z-rc1`；上传到 `/tmp` 的诊断和 RC 文件已清理。
+- 测试节点先升级到 Agent RC。初版 RC1 在该 Debian/KVM 环境中遇到 gopsutil 返回 `system="" role="guest"`，导致虚拟化类型为空；提交 `49b8d05` 增加 `systemd-detect-virt` fallback，同一红灯命令由 `expected=kvm/guest actual=` 转为 `expected=kvm/guest actual=kvm/guest`。
+- 正式 Release [`v1.0.10`](https://github.com/benbenwu1/cfsm-agent/releases/tag/v1.0.10) 精确指向 `49b8d05`，包含 16 个平台二进制和 `checksums.txt`。因 fork 的 Actions API 未注册 workflow，本次按 `release.yml` 同一矩阵本地干净构建并手工上传；Linux amd64 Release 资产 SHA-256 为 `02342c18ec89a642e95b560d562661f3d0b6aea8ad5dcf5b7e39ba87d0dac8d8`。
+- 测试节点已切换到正式 `v1.0.10`。D1 与公开 API 均返回 `cpu_physical_cores=1`、`virtualization=kvm/guest`、`agent_version=v1.0.10`；`metrics_history` 最新验证记录为 `2026-08-21T10:45:45.080Z`。最近 15 分钟 Worker 26 次、DO 20 次 invocation 全部 success、errors=0。
+- 测试节点保留三个可执行回滚副本：`/usr/local/bin/cf-probe.backup-20260821T080708Z`（v1.0.8）、`/usr/local/bin/cf-probe.backup-20260821T084458Z-rc1` 和 `/usr/local/bin/cf-probe.backup-20260821T104243Z-rc2`；上传到 `/tmp` 的诊断、RC 和正式版文件已清理。
 - `/` 与 `/admin` 均返回 `200 text/html`；线上版本保留 `API_SECRET` Secret、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET`。
 - 配置逻辑备份状态接口未认证时返回 401；密码登录后返回 `scope=configuration-only`、`restore_supported=false`、`r2_available=false`。
 - 线上实际导出 `cfsm-logical-backup` v1 成功，产物 3150 字节，包含 1 台服务器、0 个 PingTask；重新计算 `JSON.stringify(backup.data)` 的 SHA-256 与 manifest 完全一致。

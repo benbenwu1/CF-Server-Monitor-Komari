@@ -207,7 +207,7 @@ P2 不自动开工。先部署并验收已完成的 P1 Queue、周期流量快�
 
 #### P2 实施状态（2026-08-20）
 
-- **P2.1 节点静态信息**：Worker 端已部署并自动创建 `servers.cpu_physical_cores` / `virtualization`；旧 Agent `v1.0.8` 兼容验证通过后，测试节点已升级到提交 `49b8d05` 构建的 `v1.0.9-rc.2+fix.125474e0`，D1/API 实测为 1 个物理核心和 `kvm/guest`。
+- **P2.1 节点静态信息**：Worker 端已部署并自动创建 `servers.cpu_physical_cores` / `virtualization`；旧 Agent `v1.0.8` 兼容验证通过后，提交 `49b8d05` 已发布为正式 Agent `v1.0.10` 并部署到测试节点，D1/API 实测为 1 个物理核心和 `kvm/guest`。
 - **P2.2 Analytics Engine 影子遥测**：代码已部署，但未声明 `CFSM_ANALYTICS` binding，因此当前零数据写入。启用后仍只写固定 index、低基数路由类别、方法、结果、状态、耗时和计数，不写原始 path、查询串、IP、Server ID、JWT 或凭据。
 - 本地门禁为主 Worker 99 项 Node 测试、Agent 全仓测试/race/vet、四平台交叉编译、前端构建、依赖审计，以及无 Analytics/启用 Analytics 两套 Wrangler dry-run。Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` 已通过旧 Agent 兼容和 15 分钟窗口 errors=0 验证；当前没有 Analytics Engine binding。
 
