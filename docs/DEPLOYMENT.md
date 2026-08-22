@@ -19,7 +19,7 @@
 | D1 ID | `fc52eab7-4134-4a12-bb2f-8777df48f89a` |
 | Durable Object | `MetricsBroadcaster` |
 | Cron | `*/1 * * * *` 和 `0 * * * *` |
-| 已验证 Worker Version | `d94a0ff3-9292-48fc-9d99-c79e93b99349` |
+| 已验证 Worker Version | `b18cd141-980a-463b-8257-73e55567551f` |
 
 `API_SECRET` 已作为 Cloudflare Secret 设置，本机回滚副本保存在 macOS Keychain：
 
@@ -168,7 +168,7 @@ Worker Version `95e0e7c1-5196-4038-94a3-0ad24bc4d799` 增加了对现有生产 K
 
 飞书 Webhook 当前尚未配置，因此该监控会安全返回 `missing_notification_credential`，不请求 Komari、不产生 Queue 消息。配置飞书机器人后才开始真实轮询和通知。
 
-通知模块同时支持 `feishu_app` 自建应用模式。App ID 和接收 ID 类型使用普通变量 `FEISHU_APP_ID` / `FEISHU_RECEIVE_ID_TYPE`；App Secret 与接收人的跨应用标识分别通过 Worker Secret `FEISHU_APP_SECRET` / `FEISHU_RECEIVE_ID` 配置。当前四项配置均已写入，Secret 变更版本为 `d94a0ff3-9292-48fc-9d99-c79e93b99349`。首次 Queue 测试返回飞书权限错误 `99991672`，因此在应用开通 `im:message:send_as_bot`、启用机器人、发布版本并覆盖目标用户前，Provider 暂时保持 `auto`，避免真实告警被标记为永久失败。
+通知模块同时支持 `feishu_app` 自建应用模式。App ID 和接收 ID 类型使用普通变量 `FEISHU_APP_ID` / `FEISHU_RECEIVE_ID_TYPE`；App Secret 与接收人的跨应用标识分别通过 Worker Secret `FEISHU_APP_SECRET` / `FEISHU_RECEIVE_ID` 配置。当前四项配置均已写入，应用已开通 `im:message:send_as_bot`、启用机器人并发布；Provider 已切换为 `feishu_app`。Queue 真实测试一次投递成功，状态为 `delivered`，飞书返回无错误。
 
 ### Analytics Engine 影子遥测（可选，当前未启用）
 
@@ -211,7 +211,7 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 已验证链路
 
-- 2026-08-22 只读 Komari 聚合监控及飞书自建应用发送器已部署；当前 Secret 变更版本为 `d94a0ff3-9292-48fc-9d99-c79e93b99349`。绑定中新增 `KOMARI_MONITOR_URL`、`FEISHU_APP_ID`、`FEISHU_RECEIVE_ID_TYPE`、App Secret 和接收人 Secret，保留 D1、DO、Assets 和通知 Queue，未增加 R2 或 Analytics Engine。105 项 Node 测试、Agent 配置测试、生产构建、依赖审计和 Queue 配置 dry-run 全部通过。
+- 2026-08-22 只读 Komari 聚合监控及飞书自建应用发送器已部署；当前 Worker Version 为 `b18cd141-980a-463b-8257-73e55567551f`。绑定中新增 `KOMARI_MONITOR_URL`、`FEISHU_APP_ID`、`FEISHU_RECEIVE_ID_TYPE`、App Secret 和接收人 Secret，保留 D1、DO、Assets 和通知 Queue，未增加 R2 或 Analytics Engine。105 项 Node 测试、Agent 配置测试、生产构建、依赖审计和 Queue 配置 dry-run 全部通过；每分钟 Cron 已建立包含 4 个节点的 `komari_monitor_state_v1`，真实飞书测试消息一次投递成功。
 - Komari 公开 RPC 当前返回 4 台 VPS：3 台设置为 500 GiB 流量额度，阿里云广州节点未设置流量上限；有效期分别为 2026-09-14、2026-11-12、2026-12-26、2026-11-26。新面板现有 `jp-cfsm-test` 已确认对应 `IIJ-HostYun`，并同步为 500 GiB、每月 1 日重置、2026-09-14 到期。
 - 2026-08-22 Queue 部署使用代码基线 `7179aa37d9e0e1f44fe3070348562f5b742d5aae`；Worker Version `957953be-4b36-4a6d-92a9-ebe549821438` 于 01:05 UTC 接管 100% 流量。版本只增加 `NOTIFICATION_QUEUE`，保留 `API_SECRET`、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET` 或 `CFSM_ANALYTICS`。
 - 专用 Queue `cf-server-monitor-komari-notifications` / `9384c3c58017473e99e49551a0f592d9` 验收时为 producer=1、consumer=1；GitHub Actions 普通变量已读回为同名 Queue。无害 opaque job 探测被 API 接受并由 consumer 消费，`notification_jobs=0`、`traffic_report_runs=0`，`traffic_report_schedule=off`。

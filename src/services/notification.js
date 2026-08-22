@@ -316,14 +316,6 @@ export function isFeishuAppConfigured(env) {
   return !!appId && !!appSecret && !!receiveId && FEISHU_RECEIVE_ID_TYPES.has(receiveIdType);
 }
 
-function buildFeishuCard(message, title) {
-  return {
-    schema: '2.0',
-    header: { template: 'blue', title: { content: title, tag: 'plain_text' } },
-    body: { elements: [{ tag: 'markdown', content: message }] }
-  };
-}
-
 async function getFeishuTenantAccessToken(env) {
   const appId = String(env?.FEISHU_APP_ID || '').trim();
   const appSecret = String(env?.FEISHU_APP_SECRET || '').trim();
@@ -390,8 +382,10 @@ async function sendFeishuAppNotification(env, message, title, retries) {
             },
             body: JSON.stringify({
               receive_id: receiveId,
-              msg_type: 'interactive',
-              content: JSON.stringify(buildFeishuCard(message, title))
+              msg_type: 'text',
+              content: JSON.stringify({
+                text: `${title}\n\n${message.replace(/\*/g, '')}`
+              })
             })
           }
         );
@@ -400,7 +394,13 @@ async function sendFeishuAppNotification(env, message, title, retries) {
         if (response.ok && payload?.code === 0) {
           return { success: true, attempts: attempt, statusCode, error: null };
         }
-        error = payload?.code ? `FEISHU_${payload.code}` : `HTTP_${response.status}`;
+        const safeMessage = String(payload?.msg || '')
+          .replace(/o[unc]_[A-Za-z0-9_-]+/g, '<recipient>')
+          .replace(/[\u0000-\u001f\u007f]/g, ' ')
+          .slice(0, 80);
+        error = payload?.code
+          ? `FEISHU_${payload.code}${safeMessage ? `:${safeMessage}` : ''}`
+          : `HTTP_${response.status}`;
         if (payload?.code === 99991663 || response.status === 401) {
           feishuTenantTokenCache = { appId: '', token: '', expiresAt: 0 };
         }

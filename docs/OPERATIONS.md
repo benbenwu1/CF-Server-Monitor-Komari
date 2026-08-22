@@ -162,7 +162,7 @@ Wrangler 4.120.0 与 4.125.0 均没有 `queues message send` 子命令。需要�
 
 不要把 App Secret 粘贴进 Git、文档、普通变量或命令参数。App Secret 在聊天、日志或截图中出现后必须先到飞书开放平台重新生成，再通过交互式 `wrangler secret put FEISHU_APP_SECRET` 或 Cloudflare Dashboard 的加密 Secret 输入框写入。
 
-首次自建应用测试若返回 `FEISHU_99991672`，表示应用缺少目标消息操作所需权限。确认已启用机器人能力、开通 `im:message:send_as_bot`、发布应用版本，并把目标用户纳入可用范围后再重试。权限未就绪时应把通知 Provider 保持为 `auto`，避免真实异常被记录为永久投递失败。
+自建应用测试若返回 `FEISHU_99991672`，表示应用缺少目标消息操作所需权限。确认已启用机器人能力、开通 `im:message:send_as_bot`、发布应用版本，并把目标用户纳入可用范围后再重试。权限完成后，把 Provider 切换为 `feishu_app`，真实测试应在 `notification_jobs` 和 `notification_deliveries` 中形成 `provider=feishu_app`、`status=delivered` 的记录。
 
 只查看状态和数量：
 

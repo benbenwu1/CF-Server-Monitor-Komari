@@ -68,7 +68,7 @@ test('legacy notification credential formats still auto-detect all supported pro
   }
 });
 
-test('Feishu app mode obtains a tenant token and sends an interactive direct message', async () => {
+test('Feishu app mode obtains a tenant token and sends a direct text message', async () => {
   const realFetch = globalThis.fetch;
   const requests = [];
   globalThis.fetch = async (url, options) => {
@@ -105,7 +105,10 @@ test('Feishu app mode obtains a tenant token and sends an interactive direct mes
     assert.match(requests[1].url, /receive_id_type=union_id/);
     const messageBody = JSON.parse(requests[1].options.body);
     assert.equal(messageBody.receive_id, 'on_private_union_id');
-    assert.equal(messageBody.msg_type, 'interactive');
+    assert.equal(messageBody.msg_type, 'text');
+    const content = JSON.parse(messageBody.content);
+    assert.match(content.text, /Cloudflare Server Monitor/);
+    assert.match(content.text, /private app message/);
     assert.equal(JSON.stringify(result).includes('private'), false);
   } finally {
     globalThis.fetch = realFetch;
