@@ -18,7 +18,7 @@ Phase 0 之后的功能开发以以下研究与运维基线为准：
 - [`usage-baseline-2026-08-20.md`](usage-baseline-2026-08-20.md)：当前 Worker/D1/DO 实际用量、容量判断和扩容前门禁。
 - [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)：P2 四档优先级、启动门槛和明确排除项。
 
-控制面 P0/P1、通知 Queue 兼容代码、周期流量快照默认关闭逻辑、P2.1 Worker/Agent 正式版和 P2.2 未绑定代码均已部署到独立测试环境。下一步可部署通知 Queue，或单独授权启用 Analytics Engine 进行 14 天 shadow；GPU 温度与逐卡显存永久排除。
+控制面 P0/P1、通知 Queue、周期流量快照默认关闭逻辑、P2.1 Worker/Agent 正式版和 P2.2 未绑定代码均已部署到独立测试环境。下一步可单独部署隔离 D1 全量备份 Workflow，或经授权启用 Analytics Engine 进行 14 天 shadow；GPU 温度与逐卡显存永久排除。
 
 ## 上游关系
 
@@ -63,7 +63,7 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] 免费额度面板使用统一常量，并按 2026-08-18 Cloudflare 官方 D1、Workers、Durable Objects 页面复核。
 - [x] 增加 D1 Time Travel、Workers Logs / Traces 采样与脱敏运维手册；UTC 00:00 Cron 幂等初始化后清理过期控制面记录。
 
-当前全量验证结果见下方 P1 工作包记录。管理审计已具备完整 API 和独立界面；通知 Queue 与周期流量快照均为可选且默认关闭的本地 P1 能力，尚未改变线上行为。
+当前全量验证结果见下方 P1 工作包记录。管理审计已具备完整 API 和独立界面；通知 Queue 已在独立测试环境启用，周期流量快照仍为可选且默认关闭的 P1 能力。
 
 ## P1 实施状态
 

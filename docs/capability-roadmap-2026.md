@@ -198,7 +198,8 @@ Session、TOTP、GitHub OAuth、PingTask、配置逻辑备份、通知 Queue 和
 
 权威分析见 [`p2-priorities-2026-08-20.md`](p2-priorities-2026-08-20.md)。当前排序：
 
-- **近期推进**：P2.1 节点静态信息补齐；P2.2 Analytics Engine 影子遥测。
+- **已完成**：P2.1 节点静态信息补齐。
+- **近期推进**：P2.2 Analytics Engine 影子遥测。
 - **条件试点**：Browser Run 低频网页检查；Secrets Store 共享密钥治理。
 - **后置**：复杂 Workflows、R2 Data Catalog + R2 SQL、指标组分层 retention、短时 AutoDiscovery enrollment token、受限主题 schema 扩展。
 - **排除**：GPU 温度与逐卡显存；当前 P2 的 traceroute/mesh；第三方 GeoIP Provider 矩阵；原始访客审计；主题包 raw HTML/redirect/任意注入能力。
