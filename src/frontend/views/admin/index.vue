@@ -964,6 +964,7 @@ const settings = ref({
   traffic_report_schedule: 'off',
   resource_alert_rules: [],
   notification_provider: 'auto',
+  feishu_app_available: false,
   has_notification_credential: false,
   has_notification_target: false,
   tg_bot_token: '',
@@ -1549,6 +1550,7 @@ const loadSettings = async () => {
         traffic_report_schedule: normalizeTrafficReportScheduleSetting(settingsData.traffic_report_schedule),
         resource_alert_rules: normalizeResourceAlertRulesSetting(settingsData.resource_alert_rules),
         notification_provider: settingsData.notification_provider || 'auto',
+        feishu_app_available: settingsData.feishu_app_available === true,
         has_notification_credential: settingsData.has_notification_credential === true,
         has_notification_target: settingsData.has_notification_target === true,
         tg_bot_token: '',
@@ -1646,7 +1648,8 @@ const saveSettings = async () => {
 
   if (
     settings.value.notification_provider !== savedNotificationProvider.value &&
-    !String(settings.value.tg_bot_token || '').trim()
+    !String(settings.value.tg_bot_token || '').trim() &&
+    !(settings.value.notification_provider === 'feishu_app' && settings.value.feishu_app_available)
   ) {
     validationError.value = trans.value.tgBotTokenRequired
     return
@@ -1655,7 +1658,8 @@ const saveSettings = async () => {
   if (isTgNotifyEnabled(settings.value.tg_notify) || isExpireReminderEnabled(settings.value.expire_reminder) || isTrafficReportEnabled(settings.value.traffic_report_schedule) || isResourceAlertEnabled(settings.value.resource_alert_rules)) {
     if (
       (!settings.value.tg_bot_token || settings.value.tg_bot_token.trim().length === 0) &&
-      !settings.value.has_notification_credential
+      !settings.value.has_notification_credential &&
+      !(settings.value.notification_provider === 'feishu_app' && settings.value.feishu_app_available)
     ) {
       validationError.value = trans.value.tgBotTokenRequired
       return

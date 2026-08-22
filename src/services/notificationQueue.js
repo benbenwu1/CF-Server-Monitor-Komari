@@ -290,7 +290,7 @@ export async function dispatchNotification(env, settings, message, source, sendN
   const result = await sendNotification(settings, message, {
     db: env?.DB,
     source
-  });
+  }, env);
   await finalizeStagedJobAfterFallback(env?.DB, stagedJobId, result);
   if (stagedJobId && !result?.success && isRetryableDeliveryResult(result)) {
     return {
@@ -481,7 +481,7 @@ export async function processNotificationQueueBatch(batch, env, sendNotification
       }
 
       const settings = await loadSiteSettings(env.DB, { forceRefresh: true });
-      deliveryResult = await sendNotification(settings, job.message, { maxRetries: 1 });
+      deliveryResult = await sendNotification(settings, job.message, { maxRetries: 1 }, env);
       const result = deliveryResult;
       const attempts = claimedAttempts;
 

@@ -12,6 +12,8 @@ const RESOURCE_ALERT_EVALUATE_SERVER_BATCH_SIZE = 500;
 const RESOURCE_ALERT_STATE_ACTIVE = 'active';
 const RESOURCE_ALERT_STATE_RECOVERED = 'recovered';
 const RESOURCE_ALERT_STATE_KEY = 'resource_alert_state';
+const FEISHU_RECEIVE_ID_TYPES = new Set(['open_id', 'user_id', 'union_id', 'email', 'chat_id']);
+let feishuTenantTokenCache = { appId: '', token: '', expiresAt: 0 };
 
 function formatLastReportTime(timestamp) {
   if (!timestamp) return '无上报记录';
@@ -265,6 +267,7 @@ const NOTIFICATION_PROVIDERS = new Set([
   'telegram',
   'onebot',
   'feishu',
+  'feishu_app',
   'dingtalk',
   'bark',
   'wecom',
@@ -303,6 +306,116 @@ function jsonRequest(body, contentType = 'application/json') {
     headers: { 'Content-Type': contentType },
     body: JSON.stringify(body)
   };
+}
+
+export function isFeishuAppConfigured(env) {
+  const appId = String(env?.FEISHU_APP_ID || '').trim();
+  const appSecret = String(env?.FEISHU_APP_SECRET || '').trim();
+  const receiveId = String(env?.FEISHU_RECEIVE_ID || '').trim();
+  const receiveIdType = String(env?.FEISHU_RECEIVE_ID_TYPE || 'union_id').trim().toLowerCase();
+  return !!appId && !!appSecret && !!receiveId && FEISHU_RECEIVE_ID_TYPES.has(receiveIdType);
+}
+
+function buildFeishuCard(message, title) {
+  return {
+    schema: '2.0',
+    header: { template: 'blue', title: { content: title, tag: 'plain_text' } },
+    body: { elements: [{ tag: 'markdown', content: message }] }
+  };
+}
+
+async function getFeishuTenantAccessToken(env) {
+  const appId = String(env?.FEISHU_APP_ID || '').trim();
+  const appSecret = String(env?.FEISHU_APP_SECRET || '').trim();
+  if (!appId || !appSecret) return { error: 'missing_credential' };
+
+  const now = Date.now();
+  if (
+    feishuTenantTokenCache.appId === appId &&
+    feishuTenantTokenCache.token &&
+    feishuTenantTokenCache.expiresAt > now + 60_000
+  ) {
+    return { token: feishuTenantTokenCache.token };
+  }
+
+  try {
+    const response = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ app_id: appId, app_secret: appSecret })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.code !== 0 || !payload?.tenant_access_token) {
+      return {
+        error: payload?.code ? `FEISHU_${payload.code}` : `HTTP_${response.status}`,
+        statusCode: response.status
+      };
+    }
+    const expiresIn = Math.max(300, Number(payload.expire) || 7200);
+    feishuTenantTokenCache = {
+      appId,
+      token: String(payload.tenant_access_token),
+      expiresAt: now + Math.max(60, expiresIn - 300) * 1000
+    };
+    return { token: feishuTenantTokenCache.token };
+  } catch (_) {
+    return { error: 'network_error', statusCode: null };
+  }
+}
+
+async function sendFeishuAppNotification(env, message, title, retries) {
+  if (!isFeishuAppConfigured(env)) {
+    return { success: false, attempts: 0, statusCode: null, error: 'missing_credential' };
+  }
+
+  const receiveId = String(env.FEISHU_RECEIVE_ID).trim();
+  const receiveIdType = String(env.FEISHU_RECEIVE_ID_TYPE || 'union_id').trim().toLowerCase();
+  let statusCode = null;
+  let error = 'network_error';
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const tokenResult = await getFeishuTenantAccessToken(env);
+    if (!tokenResult.token) {
+      statusCode = tokenResult.statusCode ?? null;
+      error = tokenResult.error || 'token_error';
+    } else {
+      try {
+        const response = await fetch(
+          `https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(receiveIdType)}`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${tokenResult.token}`,
+              'Content-Type': 'application/json; charset=utf-8'
+            },
+            body: JSON.stringify({
+              receive_id: receiveId,
+              msg_type: 'interactive',
+              content: JSON.stringify(buildFeishuCard(message, title))
+            })
+          }
+        );
+        statusCode = response.status;
+        const payload = await response.json().catch(() => null);
+        if (response.ok && payload?.code === 0) {
+          return { success: true, attempts: attempt, statusCode, error: null };
+        }
+        error = payload?.code ? `FEISHU_${payload.code}` : `HTTP_${response.status}`;
+        if (payload?.code === 99991663 || response.status === 401) {
+          feishuTenantTokenCache = { appId: '', token: '', expiresAt: 0 };
+        }
+      } catch (_) {
+        statusCode = null;
+        error = 'network_error';
+      }
+    }
+
+    if (attempt < retries) {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+    }
+  }
+
+  return { success: false, attempts: retries, statusCode, error };
 }
 
 function buildNotificationRequest(provider, settings, message, title) {
@@ -437,9 +550,27 @@ async function finalizeNotificationResult(result, context) {
   return result;
 }
 
-export async function sendNotification(settings, msg, context = null) {
+export async function sendNotification(settings, msg, context = null, envOverride = null) {
   const provider = resolveNotificationProvider(settings);
   const message = String(msg || '');
+  const configuredRetries = Number(context?.maxRetries);
+  const retries = Number.isInteger(configuredRetries) && configuredRetries > 0
+    ? Math.min(configuredRetries, MAX_RETRIES)
+    : MAX_RETRIES;
+
+  if (provider === 'feishu_app') {
+    const result = await sendFeishuAppNotification(
+      context?.env || envOverride,
+      message,
+      '💌 Cloudflare Server Monitor',
+      retries
+    );
+    return finalizeNotificationResult({
+      ...result,
+      provider
+    }, context);
+  }
+
   const request = buildNotificationRequest(
     provider,
     settings,
@@ -457,10 +588,6 @@ export async function sendNotification(settings, msg, context = null) {
     }, context);
   }
 
-  const configuredRetries = Number(context?.maxRetries);
-  const retries = Number.isInteger(configuredRetries) && configuredRetries > 0
-    ? Math.min(configuredRetries, MAX_RETRIES)
-    : MAX_RETRIES;
   const result = await fetchWithRetry(request.url, request.options, retries);
   return finalizeNotificationResult({
     success: result.success,

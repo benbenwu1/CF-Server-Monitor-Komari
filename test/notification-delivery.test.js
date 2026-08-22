@@ -67,3 +67,47 @@ test('legacy notification credential formats still auto-detect all supported pro
     globalThis.fetch = realFetch;
   }
 });
+
+test('Feishu app mode obtains a tenant token and sends an interactive direct message', async () => {
+  const realFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    if (String(url).includes('/tenant_access_token/internal')) {
+      return new Response(JSON.stringify({
+        code: 0,
+        tenant_access_token: 'private-tenant-token',
+        expire: 7200
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ code: 0, msg: 'success' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+
+  try {
+    const result = await sendNotification(
+      { notification_provider: 'feishu_app' },
+      'private app message',
+      {
+        env: {
+          FEISHU_APP_ID: 'cli_test',
+          FEISHU_APP_SECRET: 'private-app-secret',
+          FEISHU_RECEIVE_ID: 'on_private_union_id',
+          FEISHU_RECEIVE_ID_TYPE: 'union_id'
+        }
+      }
+    );
+    assert.equal(result.success, true);
+    assert.equal(result.provider, 'feishu_app');
+    assert.equal(requests.length, 2);
+    assert.match(requests[1].url, /receive_id_type=union_id/);
+    const messageBody = JSON.parse(requests[1].options.body);
+    assert.equal(messageBody.receive_id, 'on_private_union_id');
+    assert.equal(messageBody.msg_type, 'interactive');
+    assert.equal(JSON.stringify(result).includes('private'), false);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

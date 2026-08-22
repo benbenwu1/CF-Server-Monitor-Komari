@@ -6,7 +6,7 @@ import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
 import { addServerColumns } from '../database/updateDatabase.js';
-import { clearResourceAlertState, sendNotification } from '../services/notification.js';
+import { clearResourceAlertState, isFeishuAppConfigured, sendNotification } from '../services/notification.js';
 import { listAuditEvents, recordAuditEvent } from '../services/audit.js';
 import { listNotificationDeliveries } from '../services/notificationDelivery.js';
 import { createAdminSession, createAdminSessionFromOAuthExchange, listAdminSessions, refreshAdminSession, revokeAdminSession, revokeCurrentAdminSession } from '../services/adminSession.js';
@@ -1345,6 +1345,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
           github_oauth_available: isGithubOAuthAvailable(env),
           github_oauth_bound: !!githubBinding,
           github_login: githubBinding?.provider_login || '',
+          feishu_app_available: isFeishuAppConfigured(env),
           has_notification_credential: !!String(tg_bot_token || '').trim(),
           has_notification_target: !!String(tg_chat_id || '').trim()
         },
@@ -1475,7 +1476,9 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       const effectiveNotificationProvider = notification_provider || sys?.notification_provider || 'auto';
       const effectiveNotificationCredential = String(tg_bot_token || sys?.tg_bot_token || '').trim();
       const effectiveNotificationTarget = String(tg_chat_id || sys?.tg_chat_id || '').trim();
-      if (!effectiveNotificationCredential) {
+      if (!effectiveNotificationCredential && !(
+        effectiveNotificationProvider === 'feishu_app' && isFeishuAppConfigured(env)
+      )) {
         return createBadRequestResponse('tgBotTokenRequired');
       }
       try {
@@ -1487,7 +1490,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         }, testMsg, {
           db: env.DB,
           source: 'test'
-        });
+        }, env);
         await recordAdminAuditEvent(env.DB, request, {
           eventType: 'admin.notification.test',
           outcome: delivery.success ? 'success' : 'failure',
@@ -1557,7 +1560,8 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
       ).trim().toLowerCase() || 'auto';
       const notificationProviderChanged = settings.notification_provider !== undefined &&
         requestedNotificationProvider !== currentNotificationProvider;
-      if (notificationProviderChanged && !String(settings.tg_bot_token || '').trim()) {
+      const hasManagedFeishuApp = requestedNotificationProvider === 'feishu_app' && isFeishuAppConfigured(env);
+      if (notificationProviderChanged && !String(settings.tg_bot_token || '').trim() && !hasManagedFeishuApp) {
         return createBadRequestResponse('tgBotTokenRequired');
       }
 
@@ -1599,7 +1603,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         const effectiveTgBotToken = settings.tg_bot_token !== undefined
           ? settings.tg_bot_token
           : sys?.tg_bot_token;
-        if (!effectiveTgBotToken || String(effectiveTgBotToken).trim().length === 0) {
+        if ((!effectiveTgBotToken || String(effectiveTgBotToken).trim().length === 0) && !hasManagedFeishuApp) {
           return createBadRequestResponse('tgBotTokenRequired');
         }
       }

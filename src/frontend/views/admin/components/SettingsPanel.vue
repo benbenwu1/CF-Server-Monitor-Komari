@@ -179,7 +179,11 @@
 
         </div>
 
-        <div class="form-row">
+        <p v-if="settings.notification_provider === 'feishu_app'" class="text-muted text-sm mt-1">
+          {{ settings.feishu_app_available ? trans.feishuAppReady : trans.feishuAppMissing }}
+        </p>
+
+        <div v-if="settings.notification_provider !== 'feishu_app'" class="form-row">
           <div class="form-group flex-1">
             <label class="form-label">{{ trans.telegramToken }}</label>
             <div class="password-input-wrapper">
@@ -558,6 +562,7 @@ const notificationProviderOptions = computed(() => [
   { value: 'telegram', label: 'Telegram' },
   { value: 'onebot', label: 'OneBot' },
   { value: 'feishu', label: '飞书' },
+  { value: 'feishu_app', label: '飞书自建应用' },
   { value: 'dingtalk', label: '钉钉' },
   { value: 'bark', label: 'Bark' },
   { value: 'wecom', label: '企业微信' },

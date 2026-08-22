@@ -158,6 +158,10 @@ Wrangler 4.120.0 与 4.125.0 均没有 `queues message send` 子命令。需要�
 
 运行状态使用 D1 `settings` 中的 `komari_monitor_state_v1`。它只保存节点 UUID 对应的告警状态、首次异常时间、流量告警步进和日报周期键，不保存 Komari 响应全文或任何凭据。飞书凭据缺失时监控直接返回，不请求旧面板，也不写状态。
 
+飞书自建应用模式选择 Provider `feishu_app`。普通变量为 `FEISHU_APP_ID` 和 `FEISHU_RECEIVE_ID_TYPE=union_id`；敏感值必须使用 Worker Secret：`FEISHU_APP_SECRET` 与 `FEISHU_RECEIVE_ID`。发送器先换取 tenant access token，再调用消息 API 向接收人发送交互卡片；token 只在 Worker 内存中短期缓存，不写入 D1、日志或 Queue。Queue 中仍只有通知 job ID。
+
+不要把 App Secret 粘贴进 Git、文档、普通变量或命令参数。App Secret 在聊天、日志或截图中出现后必须先到飞书开放平台重新生成，再通过交互式 `wrangler secret put FEISHU_APP_SECRET` 或 Cloudflare Dashboard 的加密 Secret 输入框写入。
+
 只查看状态和数量：
 
 ```bash

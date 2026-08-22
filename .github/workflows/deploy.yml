@@ -53,6 +53,8 @@ jobs:
           NOTIFICATION_QUEUE_NAME: ${{ vars.NOTIFICATION_QUEUE_NAME }}
           ANALYTICS_ENGINE_DATASET: ${{ vars.ANALYTICS_ENGINE_DATASET }}
           KOMARI_MONITOR_URL: ${{ vars.KOMARI_MONITOR_URL }}
+          FEISHU_APP_ID: ${{ vars.FEISHU_APP_ID }}
+          FEISHU_RECEIVE_ID_TYPE: ${{ vars.FEISHU_RECEIVE_ID_TYPE }}
         run: |
           cat > wrangler.toml << 'WEOF'
           name = "server-monitor-pro"
@@ -89,6 +91,8 @@ jobs:
           API_USER_NAME = "USER_NAME_PLACEHOLDER"
           CORS_ALLOWED_ORIGINS = "CORS_ORIGINS_PLACEHOLDER"
           KOMARI_MONITOR_URL = "KOMARI_MONITOR_URL_PLACEHOLDER"
+          FEISHU_APP_ID = "FEISHU_APP_ID_PLACEHOLDER"
+          FEISHU_RECEIVE_ID_TYPE = "FEISHU_RECEIVE_ID_TYPE_PLACEHOLDER"
           WEOF
 
           # 可选配置逻辑备份：仓库变量为空时完全不声明 R2 binding。
@@ -148,6 +152,8 @@ jobs:
             fi
           fi
           sed -i "s|KOMARI_MONITOR_URL_PLACEHOLDER|$KOMARI_MONITOR_URL|g" wrangler.toml
+          sed -i "s|FEISHU_APP_ID_PLACEHOLDER|$FEISHU_APP_ID|g" wrangler.toml
+          sed -i "s|FEISHU_RECEIVE_ID_TYPE_PLACEHOLDER|${FEISHU_RECEIVE_ID_TYPE:-union_id}|g" wrangler.toml
 
           # 替换占位符
           sed -i "s|D1_PLACEHOLDER|${{ secrets.D1_DATABASE_ID }}|g" wrangler.toml

@@ -9,6 +9,9 @@ keep_vars = true
 # 可选：只读轮询现有 Komari 公开 RPC，用于统一飞书异常与流量摘要。
 # [vars]
 # KOMARI_MONITOR_URL = "https://vps.i404.dev"
+# FEISHU_APP_ID = "cli_xxx"
+# FEISHU_RECEIVE_ID_TYPE = "union_id"
+# FEISHU_APP_SECRET 与 FEISHU_RECEIVE_ID 必须使用 Worker Secret，不能写入本文件。
 
 # 定时任务配置（UTC）
 # - 每分钟：执行离线节点检测
