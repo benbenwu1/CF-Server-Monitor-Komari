@@ -1,5 +1,6 @@
 import { loadSiteSettings } from '../utils/settings.js';
 import { dispatchNotification } from './notificationQueue.js';
+import { isFeishuAppConfigured } from './notification.js';
 
 const STATE_KEY = 'komari_monitor_state_v1';
 const RPC_PATH = '/api/rpc2';
@@ -276,7 +277,10 @@ export async function runKomariMonitor(env, nowInput = new Date(), sendNotificat
   if (!baseUrl) return { checked: false, reason: 'disabled' };
 
   const settings = await loadSiteSettings(env.DB, { forceRefresh: true });
-  if (!String(settings.tg_bot_token || '').trim()) {
+  const hasNotificationCredential = String(settings.tg_bot_token || '').trim() ||
+    (String(settings.notification_provider || '').trim().toLowerCase() === 'feishu_app' &&
+      isFeishuAppConfigured(env));
+  if (!hasNotificationCredential) {
     return { checked: false, reason: 'missing_notification_credential' };
   }
 
