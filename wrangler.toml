@@ -6,6 +6,10 @@ compatibility_flags = ["nodejs_compat"]
 
 keep_vars = true
 
+# 可选：只读轮询现有 Komari 公开 RPC，用于统一飞书异常与流量摘要。
+# [vars]
+# KOMARI_MONITOR_URL = "https://vps.i404.dev"
+
 # 定时任务配置（UTC）
 # - 每分钟：执行离线节点检测
 # - 每小时：合并执行其他定时任务（每月1号数据清理、每月8号清理旧表、每天12点服务器到期检测）

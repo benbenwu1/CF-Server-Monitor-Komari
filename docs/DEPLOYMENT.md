@@ -19,7 +19,7 @@
 | D1 ID | `fc52eab7-4134-4a12-bb2f-8777df48f89a` |
 | Durable Object | `MetricsBroadcaster` |
 | Cron | `*/1 * * * *` 和 `0 * * * *` |
-| 已验证 Worker Version | `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` |
+| 已验证 Worker Version | `95e0e7c1-5196-4038-94a3-0ad24bc4d799` |
 
 `API_SECRET` 已作为 Cloudflare Secret 设置，本机回滚副本保存在 macOS Keychain：
 
@@ -160,6 +160,14 @@ Workers Free 当前每天包含 10,000 Queue operations，一条小消息成功�
 
 流量快照可在管理页选择关闭、每日、每周或每月。周期按 UTC 计算，启用后会在当前周期首次小时 Cron 时发送；每个周期键只处理一次。内容是各服务器 Agent 上报的当前账期累计值，最多展开 50 台，并不是自然日/周/月增量；因为每台服务器可配置不同流量重置日，不能把该快照误读为统一结算周期。
 
+### Komari 只读聚合告警
+
+Worker Version `95e0e7c1-5196-4038-94a3-0ad24bc4d799` 增加了对现有生产 Komari 公开 RPC 的只读轮询。数据源通过普通变量 `KOMARI_MONITOR_URL=https://vps.i404.dev` 配置，不读取 Komari 管理员 Session、Token、节点 Secret 或远程终端能力，也不修改 Komari 数据。
+
+当前覆盖 Komari 中 4 台 VPS。每分钟 Cron 检查：连续离线 3 分钟、三网平均延迟超过 200ms 或丢包超过 10% 持续 5 分钟、流量使用达到 80% 后每增加 5%，以及有效期进入最后 7 天。每天 00:00 UTC（北京时间 08:00）生成一条汇总，包含在线状态、已用/总量/剩余流量、三网延迟/丢包和有效期。所有消息复用 `NOTIFICATION_QUEUE`，运行状态保存在 D1 `settings.komari_monitor_state_v1`，不保存 Komari 凭据。
+
+飞书 Webhook 当前尚未配置，因此该监控会安全返回 `missing_notification_credential`，不请求 Komari、不产生 Queue 消息。配置飞书机器人后才开始真实轮询和通知。
+
 ### Analytics Engine 影子遥测（可选，当前未启用）
 
 P2 影子遥测代码已随 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` 部署，但当前未声明 `CFSM_ANALYTICS` binding，因此所有写入函数立即返回，线上没有 Analytics Engine 数据写入。Analytics Engine 的 `writeDataPoint()` 是同步非阻塞调用，不需要 `waitUntil()`。
@@ -201,6 +209,8 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 已验证链路
 
+- 2026-08-22 只读 Komari 聚合监控部署为 Worker Version `95e0e7c1-5196-4038-94a3-0ad24bc4d799`；绑定中新增普通变量 `KOMARI_MONITOR_URL`，保留 D1、DO、Assets 和通知 Queue，未增加 R2 或 Analytics Engine。104 项 Node 测试、Agent 配置测试、生产构建、依赖审计和 Queue 配置 dry-run 全部通过。
+- Komari 公开 RPC 当前返回 4 台 VPS：3 台设置为 500 GiB 流量额度，阿里云广州节点未设置流量上限；有效期分别为 2026-09-14、2026-11-12、2026-12-26、2026-11-26。新面板现有 `jp-cfsm-test` 已确认对应 `IIJ-HostYun`，并同步为 500 GiB、每月 1 日重置、2026-09-14 到期。
 - 2026-08-22 Queue 部署使用代码基线 `7179aa37d9e0e1f44fe3070348562f5b742d5aae`；Worker Version `957953be-4b36-4a6d-92a9-ebe549821438` 于 01:05 UTC 接管 100% 流量。版本只增加 `NOTIFICATION_QUEUE`，保留 `API_SECRET`、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET` 或 `CFSM_ANALYTICS`。
 - 专用 Queue `cf-server-monitor-komari-notifications` / `9384c3c58017473e99e49551a0f592d9` 验收时为 producer=1、consumer=1；GitHub Actions 普通变量已读回为同名 Queue。无害 opaque job 探测被 API 接受并由 consumer 消费，`notification_jobs=0`、`traffic_report_runs=0`，`traffic_report_schedule=off`。
 - Queue 部署后 `/`、`/api/config` 和 `/__do/health` 均返回 200；从部署时间起的 GraphQL 窗口内 Worker 16 次、DO 9 次 invocation 全部 success、errors=0。测试 Agent 保持 active/enabled、`v1.0.10` 和原 SHA-256，D1 最新指标推进到 `2026-08-22T01:11:12.588Z`，静态字段仍为 `cpu_physical_cores=1`、`virtualization=kvm/guest`。

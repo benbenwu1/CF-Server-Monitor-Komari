@@ -6,7 +6,7 @@
 
 Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运行在被监控的 VPS/主机上，通过 HTTPS/WSS 单向上报到 Cloudflare。
 
-当前状态（2026-08-22）：Phase 0、P0、P1 和第一阶段验收均已完成。代码基线 `7179aa3` 已部署为 Worker Version `957953be-4b36-4a6d-92a9-ebe549821438`；正式 Agent `v1.0.10` 继续运行于独立测试节点。P2.1 已真实返回 1 个物理核心和 `kvm/guest`，HTTP 上报、D1、公开 API 与健康检查正常。专用通知 Queue 已创建并同时绑定 producer/consumer，流量快照继续保持 `off`；隔离 D1 全量备份 Workflow 仍未部署。P2.2 Analytics Engine 代码已上线但 `CFSM_ANALYTICS` binding 未启用。TOTP、GitHub OAuth 和私有 R2 仍因相应 Secret/App/binding 未配置而保持关闭。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+当前状态（2026-08-22）：Phase 0、P0、P1 和第一阶段验收均已完成。Worker Version `95e0e7c1-5196-4038-94a3-0ad24bc4d799` 已接入现有 Komari 公开 RPC，能对 4 台 VPS 做离线、线路质量、低剩余流量、有效期和每日摘要聚合；正式 Agent `v1.0.10` 继续运行于独立测试节点。专用通知 Queue 已创建并同时绑定 producer/consumer，但飞书 Webhook 尚未配置，所以真实通知仍保持静默。隔离 D1 全量备份 Workflow、P2.2 Analytics Engine、TOTP、GitHub OAuth 和私有 R2 仍未启用。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 Phase 0 之后的功能开发以以下研究与运维基线为准：
 
@@ -91,6 +91,7 @@ Komari 当前只有登录成功通知；内建周期流量报告已声明将在 
 - [x] Queue 兼容与幂等：未绑定、消息超过 16 KiB UTF-8、写入或入队失败时走同步兼容路径；staged outbox 由 Cron 恢复，完成状态与最终投递记录通过 D1 batch 原子落库，任务保留 30 天。
 - [x] 周期流量快照：管理端可选关闭/每日/每周/每月；按 UTC 周期键幂等，最多展开 50 台服务器，发送各服务器当前账期累计值、配额百分比和总量；默认关闭。
 - [x] 流量口径明确：每台服务器可有不同重置日，且精确历史只保留 7 天，因此不把快照误写成自然日/周/月增量；Queue staged/queued/delivered/failed 状态会同步回报告运行记录，记录保留 400 天。
+- [x] Komari 只读聚合告警：不修改生产 Komari，通过公开 RPC 覆盖 4 台 VPS；连续离线 3 分钟、线路延迟/丢包持续异常、流量使用达到 80% 后每增加 5%、有效期最后 7 天和每日状态摘要均复用通知 Queue。
 - [x] 使用独立 Secret 的完整 D1 REST export + Workflows 归档已在 `ops/d1-backup-workflow` 本地实现为隔离组件，不注入当前面板 Worker；默认 HTTP 404、流式写私有 R2、生成无 Secret manifest 且不自动恢复。
 
 Session 工作包为 53 项 Node 测试通过，生产构建和 Wrangler dry-run 通过，现已部署。升级后旧的无 `sid` JWT 会失效；旧前端单值 Token 会一次性迁移到当前选定站点。

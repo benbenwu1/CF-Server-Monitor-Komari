@@ -152,6 +152,12 @@ Queue 只传 job ID，通知正文保存在 `notification_jobs` 最多 30 天；
 
 Wrangler 4.120.0 与 4.125.0 均没有 `queues message send` 子命令。需要做无害链路探测时，使用 Cloudflare 官方 Queue Push Message API，且消息只能包含不存在的 opaque job ID；不得写入通知正文、Token、Chat ID 或 Provider 配置。发送后必须确认 Worker invocation 成功，并复查 `notification_jobs`、`traffic_report_runs` 没有新增记录。
 
+### Komari 只读告警源
+
+`KOMARI_MONITOR_URL` 当前指向 `https://vps.i404.dev`。Worker 只调用公开 JSON-RPC 方法 `public:getNodesInformation` 和 `common:getNodesLatestStatus`，不得携带生产 Komari Cookie、管理员凭据或节点 Token。阈值固定为：离线 3 分钟、线路平均延迟 200ms、丢包 10%、线路异常持续 5 分钟、流量使用 80% 后每增加 5%、有效期最后 7 天。每日摘要在 00:00 UTC 的前 10 分钟内幂等发送。
+
+运行状态使用 D1 `settings` 中的 `komari_monitor_state_v1`。它只保存节点 UUID 对应的告警状态、首次异常时间、流量告警步进和日报周期键，不保存 Komari 响应全文或任何凭据。飞书凭据缺失时监控直接返回，不请求旧面板，也不写状态。
+
 只查看状态和数量：
 
 ```bash

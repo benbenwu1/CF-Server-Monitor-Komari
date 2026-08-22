@@ -52,6 +52,7 @@ jobs:
           R2_BACKUP_BUCKET: ${{ vars.R2_BACKUP_BUCKET }}
           NOTIFICATION_QUEUE_NAME: ${{ vars.NOTIFICATION_QUEUE_NAME }}
           ANALYTICS_ENGINE_DATASET: ${{ vars.ANALYTICS_ENGINE_DATASET }}
+          KOMARI_MONITOR_URL: ${{ vars.KOMARI_MONITOR_URL }}
         run: |
           cat > wrangler.toml << 'WEOF'
           name = "server-monitor-pro"
@@ -87,6 +88,7 @@ jobs:
           API_SECRET = "SECRET_PLACEHOLDER"
           API_USER_NAME = "USER_NAME_PLACEHOLDER"
           CORS_ALLOWED_ORIGINS = "CORS_ORIGINS_PLACEHOLDER"
+          KOMARI_MONITOR_URL = "KOMARI_MONITOR_URL_PLACEHOLDER"
           WEOF
 
           # 可选配置逻辑备份：仓库变量为空时完全不声明 R2 binding。
@@ -138,6 +140,14 @@ jobs:
           dataset = "$ANALYTICS_ENGINE_DATASET"
           WEOF
           fi
+
+          if [ -n "$KOMARI_MONITOR_URL" ]; then
+            if [[ ! "$KOMARI_MONITOR_URL" =~ ^https://[^/?#]+/?$ ]]; then
+              echo "KOMARI_MONITOR_URL 必须是无查询参数的 HTTPS 站点根地址" >&2
+              exit 1
+            fi
+          fi
+          sed -i "s|KOMARI_MONITOR_URL_PLACEHOLDER|$KOMARI_MONITOR_URL|g" wrangler.toml
 
           # 替换占位符
           sed -i "s|D1_PLACEHOLDER|${{ secrets.D1_DATABASE_ID }}|g" wrangler.toml

@@ -27,6 +27,7 @@ import { getRemoteVersion } from './utils/version.js';
 import { cleanupGithubOAuthStartLimits, isGithubOAuthAvailable } from './services/githubOAuth.js';
 import { cleanupPingTaskResults } from './services/pingTasks.js';
 import { cleanupTrafficReportRuns, runScheduledTrafficReport } from './services/trafficReport.js';
+import { runKomariMonitor } from './services/komariMonitor.js';
 import { recordRequestTelemetry } from './services/analytics.js';
 // Durable Objects: 实时指标广播
 // 显式 import + extends，确保 wrangler 静态分析器能在入口文件直接识别此 DO 类
@@ -469,6 +470,17 @@ export default {
         debug('[Cron] 开始执行资源负载告警检测');
         await checkResourceAlerts(env);
         debug('[Cron] 资源负载告警检测完成');
+        try {
+          const komariMonitor = await runKomariMonitor(env, now, sendNotification);
+          if (komariMonitor.notifications > 0) {
+            debug(`[Cron] Komari 只读监控通知已投递: nodes=${komariMonitor.node_count}`);
+          }
+        } catch (error) {
+          console.error(JSON.stringify({
+            event: 'komari_monitor.failed',
+            error: error?.name || 'Error'
+          }));
+        }
       }
     } else if (cron === '0 * * * *') {
       const oauthStartLimitsDeleted = await cleanupGithubOAuthStartLimits(env.DB);
