@@ -6,7 +6,7 @@
 
 Cloudflare 上运行的是面板、API、实时广播和数据库；探针仍运行在被监控的 VPS/主机上，通过 HTTPS/WSS 单向上报到 Cloudflare。
 
-当前状态（2026-08-22）：Phase 0、P0、P1 和第一阶段验收均已完成。Worker Version `b18cd141-980a-463b-8257-73e55567551f` 已接入现有 Komari 公开 RPC，能对 4 台 VPS 做离线、线路质量、低剩余流量、有效期和每日摘要聚合；正式 Agent `v1.0.10` 继续运行于独立测试节点。专用通知 Queue 已创建并同时绑定 producer/consumer；飞书自建应用变量、Secret、接收人和权限均已配置，真实测试消息已一次投递成功。隔离 D1 全量备份 Workflow、P2.2 Analytics Engine、TOTP、GitHub OAuth 和私有 R2 仍未启用。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+当前状态（2026-08-22）：Phase 0、P0、P1 和第一阶段验收均已完成。Worker Version `7de399b7-b900-49fc-b638-d5a9c3f48dc3` 已接入现有 Komari 公开 RPC，能对 4 台 VPS 做离线、线路质量、低剩余流量、有效期和每日摘要聚合；飞书自建应用真实测试消息已一次投递成功。四台 VPS 中已有三台安装 `cf-probe v1.0.10` 并原生上报；阿里云广州已安装但需要解决大陆到 Cloudflare 的出口路径。专用通知 Queue、`workers.dev` 和 `cfsm.i404.dev` 均已启用。隔离 D1 全量备份 Workflow、P2.2 Analytics Engine、TOTP、GitHub OAuth 和私有 R2 仍未启用。资源、验证证据和运维边界见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 Phase 0 之后的功能开发以以下研究与运维基线为准：
 

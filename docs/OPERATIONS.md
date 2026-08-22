@@ -156,9 +156,11 @@ Wrangler 4.120.0 与 4.125.0 均没有 `queues message send` 子命令。需要�
 
 `KOMARI_MONITOR_URL` 当前指向 `https://vps.i404.dev`。Worker 只调用公开 JSON-RPC 方法 `public:getNodesInformation` 和 `common:getNodesLatestStatus`，不得携带生产 Komari Cookie、管理员凭据或节点 Token。阈值固定为：离线 3 分钟、线路平均延迟 200ms、丢包 10%、线路异常持续 5 分钟、流量使用 80% 后每增加 5%、有效期最后 7 天。每日摘要在 00:00 UTC 的前 10 分钟内幂等发送。
 
+`cfsm.i404.dev` 是同一 Worker 的自定义域名，`workers_dev=true` 必须与该路由同时保留。中国大陆主机若两者都无法直连，不得关闭旧监控 Agent；应先建立最小权限、仅允许转发目标 Worker 443 端口的受限中继，验证原生上报后再切换。
+
 运行状态使用 D1 `settings` 中的 `komari_monitor_state_v1`。它只保存节点 UUID 对应的告警状态、首次异常时间、流量告警步进和日报周期键，不保存 Komari 响应全文或任何凭据。飞书凭据缺失时监控直接返回，不请求旧面板，也不写状态。
 
-飞书自建应用模式选择 Provider `feishu_app`。普通变量为 `FEISHU_APP_ID` 和 `FEISHU_RECEIVE_ID_TYPE=union_id`；敏感值必须使用 Worker Secret：`FEISHU_APP_SECRET` 与 `FEISHU_RECEIVE_ID`。发送器先换取 tenant access token，再调用消息 API 向接收人发送交互卡片；token 只在 Worker 内存中短期缓存，不写入 D1、日志或 Queue。Queue 中仍只有通知 job ID。
+飞书自建应用模式选择 Provider `feishu_app`。普通变量为 `FEISHU_APP_ID` 和 `FEISHU_RECEIVE_ID_TYPE=union_id`；敏感值必须使用 Worker Secret：`FEISHU_APP_SECRET` 与 `FEISHU_RECEIVE_ID`。发送器先换取 tenant access token，再调用消息 API 向接收人发送文本通知；token 只在 Worker 内存中短期缓存，不写入 D1、日志或 Queue。Queue 中仍只有通知 job ID。
 
 不要把 App Secret 粘贴进 Git、文档、普通变量或命令参数。App Secret 在聊天、日志或截图中出现后必须先到飞书开放平台重新生成，再通过交互式 `wrangler secret put FEISHU_APP_SECRET` 或 Cloudflare Dashboard 的加密 Secret 输入框写入。
 
