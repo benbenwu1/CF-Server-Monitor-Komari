@@ -120,9 +120,9 @@ npx wrangler r2 bucket lifecycle add \
 
 资源创建、Secret、Workflow 状态、私有对象下载、SHA-256 长期校验和新 D1 演练恢复的完整命令均在子项目 README 中。根项目运维边界见 [`OPERATIONS.md`](OPERATIONS.md)。
 
-### 通知 Queue（可选，当前未创建）
+### 通知 Queue（可选，当前已启用）
 
-通知 Queue 与周期流量快照代码已随 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` 部署，但当前 Cloudflare 测试环境没有创建 Queue，也没有 `NOTIFICATION_QUEUE` binding，因此线上离线、恢复、资源和到期告警仍按原同步路径运行；流量快照设置为 `off`，`notification_jobs` 和 `traffic_report_runs` 均为 0。管理员“测试通知”无论是否启用 Queue 都保持同步。
+通知 Queue 已于 2026-08-22 部署到独立测试环境。专用 Queue 为 `cf-server-monitor-komari-notifications`，Queue ID 为 `9384c3c58017473e99e49551a0f592d9`；Worker Version `957953be-4b36-4a6d-92a9-ebe549821438` 同时声明 `NOTIFICATION_QUEUE` producer 与 consumer，GitHub Actions 普通变量 `NOTIFICATION_QUEUE_NAME` 已设置为同名 Queue。流量快照仍为 `off`，验收后 `notification_jobs` 和 `traffic_report_runs` 均为 0。管理员“测试通知”继续保持同步。
 
 启用前先在目标账户创建专用 Queue；Queue 名不是 Secret：
 
@@ -153,6 +153,8 @@ NOTIFICATION_QUEUE_NAME=cf-server-monitor-komari-notifications
 ```
 
 变量为空时 workflow 不声明 Queue，Worker 保持兼容；变量非空前必须先创建 Queue。不要把通知 Provider Token、Chat ID 或 Webhook 写入 Queue 变量、`wrangler.toml` 或 GitHub 配置，它们仍只保存在现有 D1 设置中。Queue 消息只有 `{version, job_id}`，consumer 执行时再读取当前设置。
+
+本次部署前 D1 Time Travel bookmark 为 `00000012-000003f6-000050cf-7eeee07b791f6ab4ab84720ca79d6cec`。Wrangler 4.120.0 与 4.125.0 均没有 `queues message send` 子命令，因此无害探测改用 Cloudflare 官方 Queue Push Message API，只发送 `{version: 1, job_id: "00000000-0000-4000-8000-000000000000"}`。API 接受消息后，consumer 对不存在的 job 正常确认；D1 未新增通知任务或流量快照记录，也没有触发外部通知。
 
 Workers Free 当前每天包含 10,000 Queue operations，一条小消息成功写入、读取、删除通常约 3 operations，且 Free 消息保留固定 24 小时。本实现只承接低频控制面告警和可选流量快照，不中转 Agent 指标或 PingTask 结果。同一 D1 job 共享初始投递加最多 3 次重试的持久化总预算，重复物理消息不会重置计数；outbox 还负责 staged 恢复。外部 Provider 仍是 at-least-once，极端崩溃窗口可能重复通知。
 
@@ -199,9 +201,12 @@ Agent 发布资产 `cf-probe-linux-amd64` 在安装前已校验 SHA-256：
 
 ## 已验证链路
 
+- 2026-08-22 Queue 部署使用代码基线 `7179aa37d9e0e1f44fe3070348562f5b742d5aae`；Worker Version `957953be-4b36-4a6d-92a9-ebe549821438` 于 01:05 UTC 接管 100% 流量。版本只增加 `NOTIFICATION_QUEUE`，保留 `API_SECRET`、D1、Durable Object、Assets 和两个 Cron，未声明 `BACKUP_BUCKET` 或 `CFSM_ANALYTICS`。
+- 专用 Queue `cf-server-monitor-komari-notifications` / `9384c3c58017473e99e49551a0f592d9` 验收时为 producer=1、consumer=1；GitHub Actions 普通变量已读回为同名 Queue。无害 opaque job 探测被 API 接受并由 consumer 消费，`notification_jobs=0`、`traffic_report_runs=0`，`traffic_report_schedule=off`。
+- Queue 部署后 `/`、`/api/config` 和 `/__do/health` 均返回 200；从部署时间起的 GraphQL 窗口内 Worker 16 次、DO 9 次 invocation 全部 success、errors=0。测试 Agent 保持 active/enabled、`v1.0.10` 和原 SHA-256，D1 最新指标推进到 `2026-08-22T01:11:12.588Z`，静态字段仍为 `cpu_physical_cores=1`、`virtualization=kvm/guest`。
 - Git 提交 `6afe512b2948c9188a82649d0f197ecfd5403562` 对应的 Worker Version `7194c8c8-aa16-4bdf-91bd-cb311d20beb3` 于 2026-08-21 04:36 UTC 接管 100% 流量。部署前 D1 Time Travel bookmark 为 `0000000d-000000f2-000050ce-4836bd5575033ef6ad3bfe452f1a2ef7`。
-- 新版本只声明现有 `API_SECRET`、D1、Durable Object 和 Assets；未声明 `NOTIFICATION_QUEUE`、`BACKUP_BUCKET` 或 `CFSM_ANALYTICS`，也未创建项目专用 Queue、R2 或 Workflow。
-- `/`、`/api/config` 和 `/__do/health` 均返回 200；部署后 15 分钟 GraphQL 窗口内新版本 5 次 invocation 全部成功、errors=0。
+- 该 2026-08-21 版本只声明现有 `API_SECRET`、D1、Durable Object 和 Assets；当时尚未声明 `NOTIFICATION_QUEUE`、`BACKUP_BUCKET` 或 `CFSM_ANALYTICS`，也未创建项目专用 Queue、R2 或 Workflow。
+- 该 2026-08-21 版本的 `/`、`/api/config` 和 `/__do/health` 均返回 200；部署后 15 分钟 GraphQL 窗口内 5 次 invocation 全部成功、errors=0。
 - `servers` 已自动增加 `cpu_physical_cores INTEGER DEFAULT 0` 和 `virtualization TEXT DEFAULT ''`；旧 Agent `v1.0.8` 继续兼容，因此当前值仍为 `0` / 空字符串。
 - D1 `metrics_history` 从部署前 4,336 行、最新 `2026-08-21T04:28:35.976Z` 增至 4,345 行、最新 `2026-08-21T04:37:39.027Z`，证明旧 Agent HTTP 上报在新版本接管后继续成功。
 - 测试节点先升级到 Agent RC。初版 RC1 在该 Debian/KVM 环境中遇到 gopsutil 返回 `system="" role="guest"`，导致虚拟化类型为空；提交 `49b8d05` 增加 `systemd-detect-virt` fallback，同一红灯命令由 `expected=kvm/guest actual=` 转为 `expected=kvm/guest actual=kvm/guest`。

@@ -189,10 +189,10 @@
 | GitHub OAuth | 已完成 GitHub 单 Provider：固定 exact callback、state 哈希与原子单次消费、S256 PKCE、numeric ID 绑定、60 秒交换码、TOTP/恢复码登录、绑定/解绑、OAuth Session 撤销、管理界面和多 API base Token 隔离；GitHub token 不落库 | 工作包代码已部署；启用前创建专用 OAuth App、关闭 wildcard，并分别配置公开 Client ID、固定 callback URL 与 Worker Secret；密码登录永久保留 |
 | 任意 PingTask | 已完成 ICMP/TCP/HTTP CRUD、排序、节点分配、新节点默认应用、schema 6 配置、Agent 本地有界调度、带批次 ACK 的 HTTP/WSS 结果回传、7 天 D1 历史、每任务最新 2048 点读取上限、管理摘要和节点详情聚合图表；不保存正文/Header/原始错误 | 工作包已部署；71 项 Worker Node 测试与 119 项 Agent Go 测试、race、vet、生产构建、依赖审计和 Wrangler dry-run 均通过。当前未创建任务；默认 300 秒，60 秒在 10 任务时每节点约产生 14,400 条结果写/日，必须结合 D1 Free 10 万行写/日与原指标写入评估 |
 | D1 → R2 备份 | 面板侧配置逻辑导出已部署：显式白名单、版本/记录数/SHA-256、可选私有 R2、未绑定安全降级。另已在 `ops/d1-backup-workflow` 完成隔离的 D1 REST export + Workflow + 私有 R2 全量 SQL 归档，固定 UTC/instance key、轮询、流式写入和无 Secret manifest；代码已随 `58aa764` 推送 | 隔离组件 13 项测试和 Wrangler dry-run 通过，但尚未创建 R2、API Token、Secret 或 Workflow，也未部署。Token 不进入面板 Worker；默认无公网入口；完整 SQL 含敏感数据且不自动恢复 |
-| 通知 Queue | 已完成可选 `NOTIFICATION_QUEUE` producer/consumer、D1 outbox、opaque job 消息、逐消息 claim/ack/retry、同一 job 四次持久化总预算、60–240 秒指数退避、永久错误终止、staged 恢复与 30 天清理；测试通知保持同步 | 代码已部署但 Queue 未创建、binding 未声明，当前仍走同步路径；`notification_jobs=0`。启用后 Free 每日 10,000 operations 只用于四类低频自动告警和可选周期流量快照 |
+| 通知 Queue | 已完成可选 `NOTIFICATION_QUEUE` producer/consumer、D1 outbox、opaque job 消息、逐消息 claim/ack/retry、同一 job 四次持久化总预算、60–240 秒指数退避、永久错误终止、staged 恢复与 30 天清理；测试通知保持同步 | 专用 Queue 已创建并部署为 producer=1、consumer=1；不存在 job ID 的 opaque 消息探测已正常消费，`notification_jobs=0`。Free 每日 10,000 operations 只用于四类低频自动告警和可选周期流量快照 |
 | 周期流量快照 | 已完成关闭/每日/每周/每月设置、UTC 周期幂等、当前账期上下行计算、配额百分比、50 台展开上限、总量汇总、Queue 状态联动和 400 天运行记录清理 | 代码已部署，线上保持 `off`，`traffic_report_runs=0`。内容仍是各服务器当前账期累计快照，不宣称自然日/周/月增量 |
 
-Session、TOTP、GitHub OAuth、PingTask、配置逻辑备份、通知 Queue 兼容代码和周期流量快照代码已部署到独立测试 Worker。当前未创建项目专用 Queue，流量快照保持 `off`；隔离 D1 全量备份 Workflow 仍未创建 R2/API Token/Secret/Workflow 或部署。未配置的 TOTP、GitHub OAuth、R2 和 Queue 保持关闭。generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
+Session、TOTP、GitHub OAuth、PingTask、配置逻辑备份、通知 Queue 和周期流量快照代码已部署到独立测试 Worker。项目专用 Queue 已启用，流量快照保持 `off`；隔离 D1 全量备份 Workflow 仍未创建 R2/API Token/Secret/Workflow 或部署。未配置的 TOTP、GitHub OAuth 和 R2 保持关闭。generic OIDC 不在当前 P1 重复实现。PingTask 不包含 traceroute、NextTrace、MeshTrace、iperf、Shell 或远程命令。
 
 ### P2：按价值与启动门槛分档
 
@@ -203,7 +203,7 @@ Session、TOTP、GitHub OAuth、PingTask、配置逻辑备份、通知 Queue 兼
 - **后置**：复杂 Workflows、R2 Data Catalog + R2 SQL、指标组分层 retention、短时 AutoDiscovery enrollment token、受限主题 schema 扩展。
 - **排除**：GPU 温度与逐卡显存；当前 P2 的 traceroute/mesh；第三方 GeoIP Provider 矩阵；原始访客审计；主题包 raw HTML/redirect/任意注入能力。
 
-P2 不自动开工。先部署并验收已完成的 P1 Queue、周期流量快照和隔离备份 Workflow，再逐项满足启动门槛。
+P2 不自动开工。通知 Queue 已部署验收；周期流量快照保持关闭。隔离备份 Workflow 仍需先完成独立部署验收，再逐项满足其他 P2 启动门槛。
 
 #### P2 实施状态（2026-08-20）
 

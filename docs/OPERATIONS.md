@@ -146,7 +146,11 @@ npx wrangler r2 object get "$R2_BUCKET/$R2_KEY" \
 
 ## 通知 Queue 运维
 
-未配置 `NOTIFICATION_QUEUE` 时不需要任何 Queue 运维，自动告警和已启用的周期流量快照继续同步发送。启用后，Queue 只传 job ID，通知正文保存在 `notification_jobs` 最多 30 天；该正文可能包含服务器名称、告警数值、流量快照和时间，仍属于私密运行数据。不要在排查时执行 `SELECT message` 后把结果贴进日志或工单。
+当前独立测试环境已启用专用 Queue `cf-server-monitor-komari-notifications`（ID `9384c3c58017473e99e49551a0f592d9`），Worker `cf-server-monitor-komari` 同时是唯一 producer 和 consumer。GitHub Actions 使用普通变量 `NOTIFICATION_QUEUE_NAME` 声明同一资源。未配置 `NOTIFICATION_QUEUE` 时，自动告警和已启用的周期流量快照会继续走同步兼容路径。
+
+Queue 只传 job ID，通知正文保存在 `notification_jobs` 最多 30 天；该正文可能包含服务器名称、告警数值、流量快照和时间，仍属于私密运行数据。不要在排查时执行 `SELECT message` 后把结果贴进日志或工单。
+
+Wrangler 4.120.0 与 4.125.0 均没有 `queues message send` 子命令。需要做无害链路探测时，使用 Cloudflare 官方 Queue Push Message API，且消息只能包含不存在的 opaque job ID；不得写入通知正文、Token、Chat ID 或 Provider 配置。发送后必须确认 Worker invocation 成功，并复查 `notification_jobs`、`traffic_report_runs` 没有新增记录。
 
 只查看状态和数量：
 
